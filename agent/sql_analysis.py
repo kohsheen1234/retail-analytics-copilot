@@ -133,8 +133,13 @@ def _read_ref(toks: list[Token], i: int, found: list[str]) -> int:
     """Read one table reference at toks[i]; append its name if it is an identifier."""
     if i >= len(toks):
         return i
-    if toks[i].text == "(":                     # subquery or parenthesised join
-        return _skip_parens(toks, i)
+    if toks[i].text == "(":
+        # Descend, do not skip. A derived table or parenthesised join still references
+        # real tables inside it: in `FROM (SELECT OrderID FROM Orders) x JOIN Products p`
+        # jumping over the parens loses Orders, which is a missing citation and a
+        # validation failure. Returning i+1 lets the outer scanner walk the inner
+        # FROM/JOIN keywords as normal.
+        return i + 1
     if toks[i].kind not in {"word", "ident"}:
         return i + 1
     if toks[i].word in _REF_STOP:               # e.g. FROM ... immediately followed by JOIN

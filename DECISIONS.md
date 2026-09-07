@@ -545,3 +545,118 @@ and usually the answer.
 **Revisit.** Re-examine if the hidden set contains pure-RAG questions that my router
 sends down the SQL path; the trace records the routing decision and its inputs for
 exactly that post-mortem.
+
+---
+
+## 2026-09-07 — Verified that the pinned generation settings reach Ollama
+
+**Observation.** `num_ctx` is not in litellm 1.99.0's `get_supported_openai_params` for
+the Ollama chat provider, and `map_openai_params` does not translate it. That raised the
+possibility that `num_ctx=4096` was being silently discarded and every generation was
+running at Ollama's 2048 default — which would truncate prompts and degrade answers
+invisibly, and would breach the context-size pin in the *other* direction.
+
+**Options.** (a) Assume it works. (b) Read more litellm internals. (c) Observe the actual
+request. (d) Bypass litellm with a custom `dspy.BaseLM` talking to `/api/chat` directly.
+
+**Choice.** (c), and it works, so not (d). I put a logging reverse proxy in front of
+Ollama for one request. `litellm/llms/ollama/chat/transformation.py` builds the body with
+`"options": optional_params`, and unmapped provider kwargs land there verbatim. Captured:
+
+```
+CAPTURED_OPTIONS={"num_ctx": 4096, "num_predict": 512, "seed": 0,
+                  "temperature": 0.0, "top_k": 0, "top_p": 1.0}
+```
+
+All six settings arrive. `max_tokens` is the one that is translated (to `num_predict`).
+
+**Reason.** (d) would have given exact control but bought nothing here, and it would put
+a hand-written client on the graded path where the pinned stack works. `tests/
+test_lm_settings.py` now asserts the kwargs so a later refactor cannot drop one.
+
+**Revisit.** If Ollama or litellm is ever upgraded, re-run the proxy check; this is a
+behaviour of an unmapped-kwarg passthrough, not a documented contract.
+
+---
+
+## 2026-09-07 — DSPy's default cache location writes outside the project
+
+**Observation.** `dspy.clients.DISK_CACHE_DIR` resolves to `~/.dspy_cache`. The
+engineering requirements say "no writes outside the project directory".
+
+**Options.** (a) Leave it. (b) Redirect the cache into the repo via
+`configure_cache(disk_cache_dir=...)`.
+
+**Choice.** (b) — `./.dspy_cache`, gitignored.
+
+**Reason.** It is a stated requirement, and it also makes the timing protocol
+executable: "clear the DSPy LM response cache before each configuration-and-seed run"
+becomes an `rmtree` of a known project path rather than reaching into a home directory.
+Keeping it out of git matters too: a committed cache would make my reported numbers
+irreproducible for graders while looking like results.
+
+**Revisit.** Nothing pending. Cache hits are reported separately from LM calls via
+`agent.lm.count_calls`, which reads DSPy's per-entry `cache_hit` flag.
+
+---
+
+## 2026-09-07 — Boundary: planning is deterministic, the LM writes SQL
+
+**Observation.** Two responsibilities could plausibly be LM work: planning (read the
+constraints out of the retrieved chunks) and NL-to-SQL. With phi3.5:3.8b at
+`num_ctx=4096`, asking one model call to both *find* `2017-06-01..2017-06-30` in a
+document and *use* it correctly in SQL puts the least reliable step upstream of
+everything else, and its failure mode is a plausible wrong number rather than an error.
+
+**Options.** (a) One LM call does planning and SQL together. (b) An LM planning node
+feeding an LM SQL node. (c) Rule-based planning feeding an LM SQL node, with unparsed
+prose still passed through as untrusted context.
+
+**Choice.** (c). `agent/planner.py` parses date windows, KPI formulas, reporting groups,
+policy windows and missing columns with shape-based patterns and hands them to NL-to-SQL
+as explicit constraints. Anything the rules do not recognise is still forwarded as prose,
+so an unparsed constraint is degraded rather than lost.
+
+**Reason.** Dates and formulas are regular enough to parse exactly, and every token
+spent making the model rediscover them is a token not spent on the join. It also makes
+conflicts *representable*: `Plan.conflicts` holds every competing value with its chunk
+id, and `resolution` is populated only when the corpus or the question supplies a real
+precedence rule — an LM planner would tend to pick one and narrate a justification,
+which is exactly the "silently resolved" failure the assessment calls out. And it is
+testable without a model: 21 planner tests run in 0.1s with no LM.
+
+**The cost, honestly.** Rules generalise worse than a model to prose shapes I have not
+anticipated. I mitigated it by keying every pattern to shape rather than to filenames or
+campaign names, and there is a test (`test_generalises_to_an_unseen_document`) that
+parses a campaign and a KPI out of a document that does not exist in the corpus. That is
+a rehearsal for the live-session modification, not a proof.
+
+**Revisit.** If the handed-over document in the live session expresses a date window in a
+form the patterns miss, the correct fix is to add a pattern *and* let the review gate
+catch the miss in the meantime — not to move planning into the model under time pressure.
+
+---
+
+## 2026-09-07 — Bug found by test: derived tables lost their inner tables
+
+**Observation.** My first table extractor skipped over a parenthesised group when it met
+one in a `FROM` position. So for
+`FROM (SELECT OrderID FROM Orders) x JOIN Products p ON 1=1`
+it returned `['Products']` and lost `Orders`. Since table citations must exactly cover
+the physical tables of the executed SQL, that is a guaranteed validation failure on any
+question whose SQL uses a derived table — and none of the 23 provided gold statements use
+one, so the gold-tables cross-check passed 23/23 while the bug was live.
+
+**Options.** (a) Skip the parens and accept the gap. (b) Descend into them.
+
+**Choice.** (b) — return the index just past `(` so the scanner walks the inner
+`FROM`/`JOIN` keywords normally.
+
+**Reason.** A derived table still reads from real tables. The case is now pinned by a
+test, along with the inverse case that motivated writing my own extractor at all: a CTE
+named after a real table (`WITH Products AS (...) SELECT ... FROM Products`) must cite
+**no** tables, where a substring matcher cites `Products`.
+
+**Revisit.** Worth noting for the live session: passing on a labelled dataset is weaker
+evidence than it looks when the dataset does not exercise the shape. The adversarial
+unit tests found this; the 23 real examples did not.
