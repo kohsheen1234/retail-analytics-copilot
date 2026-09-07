@@ -1,0 +1,25 @@
+{
+  "note": "sha256 of the five provided documents as received, plus the canonical chunk map. Proves the corpus was never edited, per the assessment's 'do not modify the documents'. Extra files added later (e.g. a document handed over in the live session) are allowed and are not listed here.",
+  "documents": {
+    "campaign_memo.md": "1cc158561879681837bf662b742e76706296f0ec167e14638cec1ef02de87498",
+    "catalog.md": "b10cb68d6b89b3e7bb4db1ecaa7985301be1fc3345bcc05bdf8a738b3f6fb5bd",
+    "kpi_definitions.md": "8c85e46c3d5c974110c02106193455d05aa61c5fab5ffb5fbbadb72cf499de5e",
+    "marketing_calendar.md": "33e6877f057b2c81e486643f9c42b76fbe5df5d57baa788658588c9b68e30b03",
+    "product_policy.md": "595c8d3306ba8f6af24447c30afc1a8b0b31093a1bb61c16e8e822d2e09842e6"
+  },
+  "chunk_ids": [
+    "campaign_memo::chunk0",
+    "catalog::chunk0",
+    "catalog::chunk1",
+    "kpi_definitions::chunk0",
+    "kpi_definitions::chunk1",
+    "kpi_definitions::chunk2",
+    "kpi_definitions::chunk3",
+    "marketing_calendar::chunk0",
+    "marketing_calendar::chunk1",
+    "marketing_calendar::chunk2",
+    "product_policy::chunk0",
+    "product_policy::chunk1",
+    "product_policy::chunk2"
+  ]
+}
