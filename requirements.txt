@@ -1,0 +1,13 @@
+# Pinned lock. Do not change versions. Produced from a verified install on Python 3.11+.
+dspy==3.3.1
+litellm==1.99.0
+langgraph==1.2.11
+langchain-core==1.6.1
+pydantic==2.13.5
+numpy==2.5.2
+pandas==3.0.5
+scikit-learn==1.9.0
+rank-bm25==0.2.2
+click==8.5.0
+rich==15.0.0
+pytest==9.1.1

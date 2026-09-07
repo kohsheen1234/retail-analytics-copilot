@@ -1,0 +1,18 @@
+# The assessment brief must not be committed (both versions of the brief agree on this).
+candidate_pack/
+ASSESSMENT.md
+*.pdf
+
+# Never commit the database: it is fetched from the invitation URL and is large.
+data/*.sqlite
+data/*.sqlite-*
+
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+
+# DSPy / litellm caches are machine-local and must not be shipped as "results".
+.dspy_cache/
+.litellm_cache/

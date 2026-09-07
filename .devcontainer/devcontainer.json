@@ -1,0 +1,7 @@
+{
+  "name": "retail-analytics-copilot",
+  "build": { "dockerfile": "../Dockerfile", "context": ".." },
+  "postCreateCommand": "mkdir -p data && [ -f data/northwind.sqlite ] || echo 'Download data/northwind.sqlite per ASSESSMENT.md'",
+  "customizations": { "vscode": { "extensions": ["ms-python.python", "ms-toolsai.jupyter"] } },
+  "forwardPorts": [11434]
+}
