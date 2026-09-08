@@ -201,7 +201,7 @@ def to_example(rec: dict) -> dspy.Example:
         id=rec["id"],
         question=rec["question"],
         format_hint=rec["format_hint"],
-        schema=schema_text(),
+        db_schema=schema_text(),
         constraints=constraints_text(plan),
         gold_sql=rec.get("gold_sql", ""),
         gold_answer=rec.get("gold_answer"),
@@ -210,7 +210,7 @@ def to_example(rec: dict) -> dspy.Example:
         route=rec.get("route", "sql"),
         ordered=bool(ordered),
         retrieved_chunks=chunk_ids,
-    ).with_inputs("question", "format_hint", "schema", "constraints")
+    ).with_inputs("question", "format_hint", "db_schema", "constraints")
 
 
 def load_examples(which: str, sql_only: bool = False) -> list[dspy.Example]:

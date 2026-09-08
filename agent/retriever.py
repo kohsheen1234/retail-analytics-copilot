@@ -44,6 +44,50 @@ def tokenize(text: str) -> list[str]:
     return out
 
 
+def _stems(text: str) -> set[str]:
+    """Word stems, collapsing simple plurals to one form (not both)."""
+    out: set[str] = set()
+    for tok in _WORD.findall(text.lower()):
+        for suf, repl in (("ies", "y"), ("es", ""), ("s", "")):
+            if len(tok) > len(suf) + 2 and tok.endswith(suf):
+                tok = tok[: -len(suf)] + repl
+                break
+        out.add(tok)
+    return out
+
+
+def heading_variants(content: str) -> list[str]:
+    """Names a chunk's heading claims to define.
+
+    "## Average Order Value (AOV)" -> ["Average Order Value", "AOV"], so a question
+    saying either form finds the chunk. A definition chunk's heading is the most reliable
+    statement of what it defines, and it is document-shape rather than document-specific,
+    so a new document works the same way.
+    """
+    for line in content.splitlines():
+        if line.startswith("#"):
+            head = line.lstrip("#").strip()
+            inside = re.findall(r"\(([^)]*)\)", head)
+            outside = re.sub(r"\([^)]*\)", " ", head).strip()
+            return [v for v in ([outside] + inside) if _is_definable(v)]
+    return []
+
+
+def _is_definable(variant: str) -> bool:
+    """Reject variants that cannot be the name of a defined term.
+
+    Specifically bare years: `# Northwind Marketing Calendar (2017)` yields the
+    parenthesised variant "2017", which matches every question mentioning 2017 and pulled
+    a title-only chunk into the AOV and gross-margin prompts. A definition name has to
+    contain a word.
+    """
+    v = variant.strip()
+    if len(v) < 3:
+        return False
+    words = _WORD.findall(v.lower())
+    return any(not w.isdigit() for w in words)
+
+
 @dataclass(frozen=True)
 class Hit:
     chunk_id: str
@@ -107,10 +151,45 @@ class Retriever:
                                  content=c.content))
         return sorted(extra, key=lambda h: h.chunk_id)
 
+    # -- 3. definition expansion ---------------------------------------------
+    def expand_for_definitions(self, question: str, hits: list[Hit]) -> list[Hit]:
+        """Chunks that define a term the question uses.
+
+        Added after an end-to-end failure, not from first principles. On
+        "Total revenue from the 'Beverages' category during the 'Summer Beverages 2017'
+        dates as defined in the marketing calendar", BM25 ranks the three calendar and
+        memo chunks above `kpi_definitions::chunk3`, which lands 6th and falls outside
+        k=4. The Revenue formula therefore never reached the planner, no formula
+        constraint reached the prompt, and the model summed `UnitPrice * Quantity`
+        without `(1 - Discount)` -- answering 611679.25 against a gold of 611562.68. A
+        near-miss of that shape is the worst kind of wrong: plausible, uncheckable
+        without the gold, and caused by a ranking cutoff rather than by the model.
+
+        Raising k would also have fixed this one case, at the cost of spending context on
+        whatever ranks 5th and 6th for every other question. Targeting definitions spends
+        it only where a definition is actually invoked.
+        """
+        qs = _stems(question)
+        have = {h.chunk_id for h in hits}
+        extra: list[Hit] = []
+        for c in self.chunks:
+            if c.id in have:
+                continue
+            for variant in heading_variants(c.content):
+                vs = _stems(variant)
+                if vs and vs <= qs:
+                    extra.append(Hit(chunk_id=c.id, score=0.0,
+                                     source="definition-expansion", content=c.content))
+                    break
+        return sorted(extra, key=lambda h: h.chunk_id)
+
     def retrieve(self, question: str, k: int) -> tuple[list[Hit], list[Hit]]:
         """(top_k, expansion). Callers pass top_k + expansion to planning."""
         top = self.bm25(question, k)
-        return top, self.expand_for_conflicts(question, top)
+        extra = self.expand_for_conflicts(question, top)
+        seen = {h.chunk_id for h in top + extra}
+        extra += [h for h in self.expand_for_definitions(question, top) if h.chunk_id not in seen]
+        return top, sorted(extra, key=lambda h: h.chunk_id)
 
     def exists(self, chunk_id: str) -> bool:
         return chunk_id in self.by_id

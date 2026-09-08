@@ -249,3 +249,121 @@ def unwrapped_date_comparisons(sql: str) -> list[str]:
         if col not in hits:
             hits.append(col)
     return hits
+
+
+# --- static schema checking ---------------------------------------------------
+# Catching an invented column before execution turns a wasted 16-20s generation plus a
+# consumed repair slot into a precise, actionable message. The smoke run produced
+# `Customers.CustomerID` (Customers never joined), `Discontins`, and `Orders.ProductID`
+# in three consecutive attempts, none of which the generic executor error helped fix.
+
+def _refs_with_aliases(sql: str) -> tuple[list[tuple[str, str | None]], set[str]]:
+    """((table_name, alias) per FROM/JOIN target, aliases of derived tables)."""
+    toks = tokenize(sql)
+    out: list[tuple[str, str | None]] = []
+    derived: set[str] = set()
+    i = 0
+    while i < len(toks):
+        w = toks[i].word
+        if w in ("from", "join"):
+            i, _ = _read_ref_alias(toks, i + 1, out, derived)
+            if w == "from":
+                while i < len(toks) and toks[i].text == ",":
+                    i, _ = _read_ref_alias(toks, i + 1, out, derived)
+        else:
+            i += 1
+    return out, derived
+
+
+def _read_ref_alias(toks: list[Token], i: int, found: list[tuple[str, str | None]],
+                    derived: set[str] | None = None) -> tuple[int, bool]:
+    if i >= len(toks):
+        return i, False
+    if toks[i].text == "(":
+        # Derived table. Its columns are unknowable statically, but its alias is a
+        # legitimately defined name and must not be reported as undefined.
+        j = _skip_parens(toks, i)
+        if derived is not None and j < len(toks):
+            k = j + 1 if toks[j].word == "as" else j
+            if k < len(toks) and toks[k].kind in {"word", "ident"} and toks[k].word not in _NOT_ALIAS:
+                derived.add(_unquote(toks[k].text).lower())
+        return i + 1, False
+    if toks[i].kind not in {"word", "ident"} or toks[i].word in _REF_STOP:
+        return i, False
+    name = _unquote(toks[i].text)
+    i += 1
+    while i + 1 < len(toks) and toks[i].text == "." and toks[i + 1].kind in {"word", "ident"}:
+        name = _unquote(toks[i + 1].text)
+        i += 2
+    if i < len(toks) and toks[i].text == "(":
+        return _skip_parens(toks, i), False
+    alias = None
+    if i < len(toks) and toks[i].word == "as":
+        i += 1
+        if i < len(toks) and toks[i].kind in {"word", "ident"}:
+            alias = _unquote(toks[i].text)
+            i += 1
+    elif i < len(toks) and toks[i].kind in {"word", "ident"} and toks[i].word not in _NOT_ALIAS:
+        alias = _unquote(toks[i].text)
+        i += 1
+    found.append((name, alias))
+    return i, True
+
+
+_QUALIFIED = re.compile(
+    r'(?<![\w."])(?:([A-Za-z_]\w*)|"([^"]+)"|\[([^\]]+)\])\s*\.\s*'
+    r'(?:([A-Za-z_]\w*)|"([^"]+)"|\[([^\]]+)\])')
+
+
+def schema_errors(sql: str, schema: dict[str, list[dict]]) -> list[str]:
+    """Qualified column references that the live schema cannot satisfy.
+
+    Only *qualified* references (`alias.column` / `Table.column`) are checked. Bare
+    column names are left alone: resolving them correctly needs full scope analysis, and
+    a false positive here would trigger a pointless repair on valid SQL. Qualified
+    references are unambiguous and are where the model's mistakes actually land.
+    """
+    by_fold = {t.lower(): t for t in schema}
+    cols_by_table = {t: {c["name"].lower() for c in cols} for t, cols in schema.items()}
+
+    refs, derived = _refs_with_aliases(sql)
+    ctes = cte_names(tokenize(sql))
+    scope: dict[str, str] = {}         # alias-or-name (folded) -> real table
+    for name, alias in refs:
+        real = by_fold.get(name.lower())
+        if real is None:
+            continue                    # CTE or unknown; unknown surfaces at execution
+        scope[name.lower()] = real
+        if alias:
+            scope[alias.lower()] = real
+
+    body = _STRINGS.sub("''", _COMMENTS.sub(" ", sql))
+    problems: list[str] = []
+    for m in _QUALIFIED.finditer(body):
+        qual = (m.group(1) or m.group(2) or m.group(3) or "").lower()
+        col = (m.group(4) or m.group(5) or m.group(6) or "")
+        if not qual or not col or qual in ctes:
+            continue
+        table = scope.get(qual)
+        if table is None:
+            if qual in derived:
+                continue            # derived-table alias; columns not knowable statically
+            if qual in by_fold:
+                problems.append(
+                    f"'{by_fold[qual]}.{col}' refers to table {by_fold[qual]}, which is not "
+                    f"in any FROM or JOIN clause of this query")
+            else:
+                joined = ", ".join(sorted({a or t for t, a in refs})) or "(none)"
+                problems.append(
+                    f"alias '{qual}' in '{qual}.{col}' is never defined; this query only "
+                    f"has: {joined}. Add the missing JOIN or use a defined alias.")
+            continue
+        if col.lower() not in cols_by_table[table]:
+            available = ", ".join(sorted(c["name"] for c in schema[table]))
+            problems.append(
+                f"column '{col}' does not exist on {table}; {table} has: {available}")
+    seen: list[str] = []
+    for p in problems:
+        if p not in seen:
+            seen.append(p)
+    return seen
