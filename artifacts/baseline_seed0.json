@@ -1,0 +1,44 @@
+{
+  "generate": {
+    "traces": [],
+    "train": [],
+    "demos": [],
+    "signature": {
+      "instructions": "Write one SQLite SELECT statement that answers the question.\n\nUse only tables and columns from the schema. Obey every line in constraints.\nOutput SQL only, with no prose, no markdown fence and no trailing semicolon.\nIf the question needs no database access, output nothing at all.",
+      "fields": [
+        {
+          "prefix": "Question:",
+          "description": "the analytics question"
+        },
+        {
+          "prefix": "Format Hint:",
+          "description": "shape the answer must take; controls how many columns to select"
+        },
+        {
+          "prefix": "Db Schema:",
+          "description": "live schema from PRAGMA"
+        },
+        {
+          "prefix": "Constraints:",
+          "description": "date windows, KPI formulas and reporting rules already resolved from the documents"
+        },
+        {
+          "prefix": "Feedback:",
+          "description": "empty on the first attempt; on a retry, the previous SQL and why it failed"
+        },
+        {
+          "prefix": "Sql:",
+          "description": "a single SELECT statement, or empty if no SQL is needed"
+        }
+      ]
+    },
+    "lm": null
+  },
+  "metadata": {
+    "dependency_versions": {
+      "python": "3.12",
+      "dspy": "3.3.1",
+      "cloudpickle": "3.1"
+    }
+  }
+}
