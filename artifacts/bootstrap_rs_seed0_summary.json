@@ -1,0 +1,31 @@
+{
+  "config": "bootstrap_rs",
+  "seed": 0,
+  "dev_score": 0.2667,
+  "dev_correct": 4,
+  "dev_total": 15,
+  "lm_calls": 110,
+  "cache_hits": 0,
+  "billable_lm_calls": 110,
+  "wall_seconds": 1805.7,
+  "max_demos": 2,
+  "train_size": 20,
+  "demos": [
+    {
+      "predictor": "generate",
+      "index": 0,
+      "augmented": true,
+      "question": "How many distinct orders were placed during 'Winter Classics 2017' as defined in the marketing calendar? Return an integer.",
+      "sql": "SELECT COUNT(DISTINCT o.OrderID) FROM Orders o JOIN Customers c ON c.CustomerID=o.CustomerID WHERE date(o.OrderDate) BETWEEN '2017-12-01' AND '2017-12-31'"
+    },
+    {
+      "predictor": "generate",
+      "index": 1,
+      "augmented": true,
+      "question": "How many orders placed in 2018 have no shipped date recorded? Return an integer.",
+      "sql": "SELECT COUNT(*) FROM Orders o WHERE date(o.OrderDate) BETWEEN '2018-01-01' AND '2018-12-31' AND ShippedDate IS NULL;"
+    }
+  ],
+  "model": "phi3.5:3.8b-mini-instruct-q4_K_M",
+  "num_ctx": 4096
+}

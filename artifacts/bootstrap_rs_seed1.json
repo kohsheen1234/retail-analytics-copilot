@@ -1,0 +1,85 @@
+{
+  "generate": {
+    "traces": [],
+    "train": [],
+    "demos": [
+      {
+        "augmented": true,
+        "question": "How many customers are based in France? Return an integer.",
+        "format_hint": "int",
+        "db_schema": "TABLES (col:type, * = primary key):\n  Categories(CategoryID:int*, CategoryName:txt, Description:txt, Picture:blob)\n  CustomerCustomerDemo(CustomerID:txt*, CustomerTypeID:txt*)  [EMPTY TABLE - 0 rows]\n  CustomerDemographics(CustomerTypeID:txt*, CustomerDesc:txt)  [EMPTY TABLE - 0 rows]\n  Customers(CustomerID:txt*, CompanyName:txt, ContactName:txt, ContactTitle:txt, Address:txt, City:txt, Region:txt, PostalCode:txt, Country:txt, Phone:txt, Fax:txt)\n  EmployeeTerritories(EmployeeID:int*, TerritoryID:txt*)\n  Employees(EmployeeID:int*, LastName:txt, FirstName:txt, Title:txt, TitleOfCourtesy:txt, BirthDate:date, HireDate:date, Address:txt, City:txt, Region:txt, PostalCode:txt, Country:txt, HomePhone:txt, Extension:txt, Photo:blob, Notes:txt, ReportsTo:int, PhotoPath:txt)\n  \"Order Details\"(OrderID:int*, ProductID:int*, UnitPrice:num, Quantity:int, Discount:real)\n  Orders(OrderID:int*, CustomerID:txt, EmployeeID:int, OrderDate:date, RequiredDate:date, ShippedDate:date, ShipVia:int, Freight:num, ShipName:txt, ShipAddress:txt, ShipCity:txt, ShipRegion:txt, ShipPostalCode:txt, ShipCountry:txt)\n  Products(ProductID:int*, ProductName:txt, SupplierID:int, CategoryID:int, QuantityPerUnit:txt, UnitPrice:num, UnitsInStock:int, UnitsOnOrder:int, ReorderLevel:int, Discontinued:txt)\n  Regions(RegionID:int*, RegionDescription:txt)\n  Shippers(ShipperID:int*, CompanyName:txt, Phone:txt)\n  Suppliers(SupplierID:int*, CompanyName:txt, ContactName:txt, ContactTitle:txt, Address:txt, City:txt, Region:txt, PostalCode:txt, Country:txt, Phone:txt, Fax:txt, HomePage:txt)\n  Territories(TerritoryID:txt*, TerritoryDescription:txt, RegionID:int)\nJOINS (foreign keys):\n  CustomerCustomerDemo.CustomerTypeID -> CustomerDemographics.CustomerTypeID\n  CustomerCustomerDemo.CustomerID -> Customers.CustomerID\n  EmployeeTerritories.TerritoryID -> Territories.TerritoryID\n  EmployeeTerritories.EmployeeID -> Employees.EmployeeID\n  Employees.ReportsTo -> Employees.EmployeeID\n  \"Order Details\".ProductID -> Products.ProductID\n  \"Order Details\".OrderID -> Orders.OrderID\n  Orders.ShipVia -> Shippers.ShipperID\n  Orders.CustomerID -> Customers.CustomerID\n  Orders.EmployeeID -> Employees.EmployeeID\n  Products.SupplierID -> Suppliers.SupplierID\n  Products.CategoryID -> Categories.CategoryID\n  Territories.RegionID -> Regions.RegionID",
+        "constraints": "DATES: OrderDate mixes 'YYYY-MM-DD' and 'YYYY-MM-DD HH:MM:SS'; always wrap it as date(OrderDate) so the closing day is not dropped.\nENTITY GRAIN: group by the entity's id column (CustomerID, CategoryID, ProductID, EmployeeID, SupplierID) and select its display name.\nREVENUE uses \"Order Details\".UnitPrice, never Products.UnitPrice.",
+        "feedback": "none",
+        "sql": "SELECT COUNT(*) FROM Customers WHERE Country = 'France'"
+      },
+      {
+        "id": "train_top_supplier_revenue_2017",
+        "question": "Which supplier generated the highest revenue in 2017? Return {supplier:str, revenue:float}.",
+        "format_hint": "{supplier:str, revenue:float}",
+        "db_schema": "TABLES (col:type, * = primary key):\n  Categories(CategoryID:int*, CategoryName:txt, Description:txt, Picture:blob)\n  CustomerCustomerDemo(CustomerID:txt*, CustomerTypeID:txt*)  [EMPTY TABLE - 0 rows]\n  CustomerDemographics(CustomerTypeID:txt*, CustomerDesc:txt)  [EMPTY TABLE - 0 rows]\n  Customers(CustomerID:txt*, CompanyName:txt, ContactName:txt, ContactTitle:txt, Address:txt, City:txt, Region:txt, PostalCode:txt, Country:txt, Phone:txt, Fax:txt)\n  EmployeeTerritories(EmployeeID:int*, TerritoryID:txt*)\n  Employees(EmployeeID:int*, LastName:txt, FirstName:txt, Title:txt, TitleOfCourtesy:txt, BirthDate:date, HireDate:date, Address:txt, City:txt, Region:txt, PostalCode:txt, Country:txt, HomePhone:txt, Extension:txt, Photo:blob, Notes:txt, ReportsTo:int, PhotoPath:txt)\n  \"Order Details\"(OrderID:int*, ProductID:int*, UnitPrice:num, Quantity:int, Discount:real)\n  Orders(OrderID:int*, CustomerID:txt, EmployeeID:int, OrderDate:date, RequiredDate:date, ShippedDate:date, ShipVia:int, Freight:num, ShipName:txt, ShipAddress:txt, ShipCity:txt, ShipRegion:txt, ShipPostalCode:txt, ShipCountry:txt)\n  Products(ProductID:int*, ProductName:txt, SupplierID:int, CategoryID:int, QuantityPerUnit:txt, UnitPrice:num, UnitsInStock:int, UnitsOnOrder:int, ReorderLevel:int, Discontinued:txt)\n  Regions(RegionID:int*, RegionDescription:txt)\n  Shippers(ShipperID:int*, CompanyName:txt, Phone:txt)\n  Suppliers(SupplierID:int*, CompanyName:txt, ContactName:txt, ContactTitle:txt, Address:txt, City:txt, Region:txt, PostalCode:txt, Country:txt, Phone:txt, Fax:txt, HomePage:txt)\n  Territories(TerritoryID:txt*, TerritoryDescription:txt, RegionID:int)\nJOINS (foreign keys):\n  CustomerCustomerDemo.CustomerTypeID -> CustomerDemographics.CustomerTypeID\n  CustomerCustomerDemo.CustomerID -> Customers.CustomerID\n  EmployeeTerritories.TerritoryID -> Territories.TerritoryID\n  EmployeeTerritories.EmployeeID -> Employees.EmployeeID\n  Employees.ReportsTo -> Employees.EmployeeID\n  \"Order Details\".ProductID -> Products.ProductID\n  \"Order Details\".OrderID -> Orders.OrderID\n  Orders.ShipVia -> Shippers.ShipperID\n  Orders.CustomerID -> Customers.CustomerID\n  Orders.EmployeeID -> Employees.EmployeeID\n  Products.SupplierID -> Suppliers.SupplierID\n  Products.CategoryID -> Categories.CategoryID\n  Territories.RegionID -> Regions.RegionID",
+        "constraints": "FORMULA Revenue [unspecified]: SUM(UnitPrice * Quantity * (1 - Discount)) computed from order line items, using the line item unit price at time of sale, not the current catalog price\nDATES: OrderDate mixes 'YYYY-MM-DD' and 'YYYY-MM-DD HH:MM:SS'; always wrap it as date(OrderDate) so the closing day is not dropped.\nENTITY GRAIN: group by the entity's id column (CustomerID, CategoryID, ProductID, EmployeeID, SupplierID) and select its display name.\nREVENUE uses \"Order Details\".UnitPrice, never Products.UnitPrice.",
+        "feedback": "none",
+        "sql": "SELECT s.CompanyName, ROUND(SUM(od.UnitPrice*od.Quantity*(1-od.Discount)),2) r FROM \"Order Details\" od JOIN Orders o ON o.OrderID=od.OrderID JOIN Products p ON p.ProductID=od.ProductID JOIN Suppliers s ON s.SupplierID=p.SupplierID WHERE date(o.OrderDate) BETWEEN '2017-01-01' AND '2017-12-31' GROUP BY s.SupplierID ORDER BY r DESC LIMIT 1",
+        "gold_sql": "SELECT s.CompanyName, ROUND(SUM(od.UnitPrice*od.Quantity*(1-od.Discount)),2) r FROM \"Order Details\" od JOIN Orders o ON o.OrderID=od.OrderID JOIN Products p ON p.ProductID=od.ProductID JOIN Suppliers s ON s.SupplierID=p.SupplierID WHERE date(o.OrderDate) BETWEEN '2017-01-01' AND '2017-12-31' GROUP BY s.SupplierID ORDER BY r DESC LIMIT 1",
+        "gold_answer": {
+          "supplier": "Aux joyeux ecclésiastiques",
+          "revenue": 4919595.29
+        },
+        "gold_tables": [
+          "Order Details",
+          "Orders",
+          "Products",
+          "Suppliers"
+        ],
+        "gold_chunks": [
+          "kpi_definitions::chunk3"
+        ],
+        "route": "hybrid",
+        "ordered": true,
+        "retrieved_chunks": [
+          "kpi_definitions::chunk3",
+          "kpi_definitions::chunk2",
+          "product_policy::chunk0",
+          "catalog::chunk0"
+        ]
+      }
+    ],
+    "signature": {
+      "instructions": "Write one SQLite SELECT statement that answers the question.\n\nUse only tables and columns from the schema. Obey every line in constraints.\nOutput SQL only, with no prose, no markdown fence and no trailing semicolon.\nIf the question needs no database access, output nothing at all.",
+      "fields": [
+        {
+          "prefix": "Question:",
+          "description": "the analytics question"
+        },
+        {
+          "prefix": "Format Hint:",
+          "description": "shape the answer must take; controls how many columns to select"
+        },
+        {
+          "prefix": "Db Schema:",
+          "description": "live schema from PRAGMA"
+        },
+        {
+          "prefix": "Constraints:",
+          "description": "date windows, KPI formulas and reporting rules already resolved from the documents"
+        },
+        {
+          "prefix": "Feedback:",
+          "description": "empty on the first attempt; on a retry, the previous SQL and why it failed"
+        },
+        {
+          "prefix": "Sql:",
+          "description": "a single SELECT statement, or empty if no SQL is needed"
+        }
+      ]
+    },
+    "lm": null
+  },
+  "metadata": {
+    "dependency_versions": {
+      "python": "3.12",
+      "dspy": "3.3.1",
+      "cloudpickle": "3.1"
+    }
+  }
+}

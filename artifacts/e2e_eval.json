@@ -1,0 +1,29 @@
+{
+  "note": "End-to-end correctness of the full agent on the provided eval file, one run per candidate artifact. This is the objective; the dev module score is a proxy for it. Recorded because the two disagree.",
+  "eval_file": "sample_questions_hybrid_eval.jsonl",
+  "results": {
+    "control_seed0": {
+      "correct": 6,
+      "total": 6,
+      "outputs": "verified against independently computed references"
+    },
+    "bootstrap_rs_seed0": {
+      "correct": 4,
+      "total": 6,
+      "regressions": [
+        {
+          "id": "hybrid_aov_winter_2017",
+          "got": 21056.92,
+          "expected": 21018.7,
+          "cause": "dropped (1 - od.Discount): computed the LEGACY AOV formula, not the current one"
+        },
+        {
+          "id": "hybrid_best_customer_margin_2017",
+          "got": "La corne d'abondance / 10708.89",
+          "expected": "Wilman Kala / 251847.49",
+          "cause": "divided by COUNT(DISTINCT o.OrderID), returning margin PER ORDER instead of total; traceable to bootstrap_rs_seed0 demo[0], whose SQL is SELECT COUNT(DISTINCT o.OrderID) FROM Orders o JOIN Customers c ... - a demo the metric certified correct on its own question"
+        }
+      ]
+    }
+  }
+}
