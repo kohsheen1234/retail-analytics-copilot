@@ -297,11 +297,15 @@ def make_graph(deps: Deps, tracer: Tracer):
             evidence = (f"SQL: {state.get('sql') or '(none)'}\n"
                         f"rows: {len(state.get('rows') or [])}\n"
                         f"constraints: {state.get('constraints', '')[:400]}")
-            try:
-                explanation = deps.explainer(question=state["question"], evidence=evidence).explanation
-            except Exception as e:                       # prose is never load-bearing
-                explanation = "Answer computed from the cited tables under the stated constraints."
-                st.record(explainer_error=str(e))
+            if config.USE_LM_EXPLANATION:
+                try:
+                    explanation = deps.explainer(question=state["question"],
+                                                 evidence=evidence).explanation
+                except Exception as e:                   # prose is never load-bearing
+                    explanation = describe(state, plan)
+                    st.record(explainer_error=str(e))
+            else:
+                explanation = describe(state, plan)
             resolved = [c for c in plan.conflicts if c.resolution]
             conf = score_confidence(
                 route=state["route"], repairs=state.get("repairs", 0),
@@ -375,6 +379,35 @@ def make_graph(deps: Deps, tracer: Tracer):
 
 
 # --------------------------------------------------------------------------- helpers
+
+def describe(state: State, plan: Plan) -> str:
+    """Deterministic explanation, at most two sentences.
+
+    Built from what the graph actually did, so it is accurate by construction rather than
+    by the model's recollection: the route, the resolved window, the formula applied, the
+    tables read and the number of rows behind the figure.
+    """
+    if state["route"] == "rag":
+        chunks = [c for c in state.get("citations", []) if "::" in c]
+        return ("Read directly from " + (", ".join(chunks) or "the retrieved policy text")
+                + "; no database query was needed.")
+    bits: list[str] = []
+    if plan.chosen_window:
+        bits.append(f"restricted to {plan.chosen_window.start}..{plan.chosen_window.end}")
+    names = sorted({k.name for k in plan.kpi_formulas})
+    if names:
+        bits.append("applying the " + "/".join(names) + " definition from the KPI docs")
+    for group in plan.reporting_groups:
+        if _mentions_reporting_group(state, plan):
+            bits.append(f"rolled up into the '{group}' reporting group")
+    tables = [c for c in state.get("citations", []) if "::" not in c]
+    first = ("Queried " + (", ".join(tables) or "the database")
+             + (" " + " and ".join(bits) if bits else "") + ".")
+    second = f"The figure comes from {len(state.get('rows') or [])} returned row(s)"
+    if state.get("repairs"):
+        second += f" after {state['repairs']} repair attempt(s)"
+    return first + " " + second + "."
+
 
 def _chunks_supporting(state: State, answer: Any) -> list[str]:
     """Chunks the answer actually rested on.

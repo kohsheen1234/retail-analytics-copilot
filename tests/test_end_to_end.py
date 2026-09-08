@@ -272,9 +272,13 @@ class TestOutputContract:
         assert round_tripped == rec
 
     def test_explanation_is_at_most_two_sentences(self, deps):
+        """Counted on sentence terminators, not on every '.': a resolved window renders as
+        `2017-06-01..2017-06-30`, whose dots are not sentence ends."""
+        import re
         deps.nl2sql = ScriptedSQL(REVENUE)
         rec = answer_question(q("e2e_expl", TestHybridHappyPath.QUESTION, "float"), deps)
-        assert rec.explanation.count(".") <= 2
+        sentences = re.findall(r"[.!?](?:\s|$)", rec.explanation)
+        assert 0 < len(sentences) <= 2, rec.explanation
 
     def test_no_sql_means_no_table_citations(self, deps):
         deps.nl2sql = ScriptedSQL()

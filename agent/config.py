@@ -53,6 +53,17 @@ RETRIEVE_K = 4
 # --- Repair -------------------------------------------------------------------
 MAX_REPAIRS = 2         # hard cap from the assessment
 
+# --- Explanation ---------------------------------------------------------------
+# The explanation is generated deterministically from the plan and the executed SQL
+# rather than by an LM call. Measured reason, not preference: phi3.5 hits num_predict=512
+# on essentially every call ("LM response was truncated due to exceeding max_tokens=512")
+# and one call costs 25-60s on this machine. The hidden set must finish in under five
+# minutes, and an explanation call per question is the difference between meeting that
+# budget and missing it. `explanation` wording is also the one output field the
+# determinism contract explicitly exempts, which makes it the cheapest thing to give up.
+# The DSPy Explainer module is kept and tested; set USE_LM_EXPLANATION=1 to use it.
+USE_LM_EXPLANATION = os.environ.get("USE_LM_EXPLANATION", "0") == "1"
+
 # --- Confidence rubric --------------------------------------------------------
 # Deterministic, documented in DECISIONS.md. Never exceeds CONF_PENALTY_LINE when a
 # load-bearing assumption was invented rather than sourced from the corpus.
