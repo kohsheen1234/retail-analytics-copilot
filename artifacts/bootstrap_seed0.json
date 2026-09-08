@@ -4,66 +4,22 @@
     "train": [],
     "demos": [
       {
-        "id": "train_discontinued_products",
-        "question": "How many products are discontinued? Return an integer.",
+        "augmented": true,
+        "question": "How many distinct orders were placed during 'Winter Classics 2017' as defined in the marketing calendar? Return an integer.",
         "format_hint": "int",
         "db_schema": "TABLES (col:type, * = primary key):\n  Categories(CategoryID:int*, CategoryName:txt, Description:txt, Picture:blob)\n  CustomerCustomerDemo(CustomerID:txt*, CustomerTypeID:txt*)  [EMPTY TABLE - 0 rows]\n  CustomerDemographics(CustomerTypeID:txt*, CustomerDesc:txt)  [EMPTY TABLE - 0 rows]\n  Customers(CustomerID:txt*, CompanyName:txt, ContactName:txt, ContactTitle:txt, Address:txt, City:txt, Region:txt, PostalCode:txt, Country:txt, Phone:txt, Fax:txt)\n  EmployeeTerritories(EmployeeID:int*, TerritoryID:txt*)\n  Employees(EmployeeID:int*, LastName:txt, FirstName:txt, Title:txt, TitleOfCourtesy:txt, BirthDate:date, HireDate:date, Address:txt, City:txt, Region:txt, PostalCode:txt, Country:txt, HomePhone:txt, Extension:txt, Photo:blob, Notes:txt, ReportsTo:int, PhotoPath:txt)\n  \"Order Details\"(OrderID:int*, ProductID:int*, UnitPrice:num, Quantity:int, Discount:real)\n  Orders(OrderID:int*, CustomerID:txt, EmployeeID:int, OrderDate:date, RequiredDate:date, ShippedDate:date, ShipVia:int, Freight:num, ShipName:txt, ShipAddress:txt, ShipCity:txt, ShipRegion:txt, ShipPostalCode:txt, ShipCountry:txt)\n  Products(ProductID:int*, ProductName:txt, SupplierID:int, CategoryID:int, QuantityPerUnit:txt, UnitPrice:num, UnitsInStock:int, UnitsOnOrder:int, ReorderLevel:int, Discontinued:txt)\n  Regions(RegionID:int*, RegionDescription:txt)\n  Shippers(ShipperID:int*, CompanyName:txt, Phone:txt)\n  Suppliers(SupplierID:int*, CompanyName:txt, ContactName:txt, ContactTitle:txt, Address:txt, City:txt, Region:txt, PostalCode:txt, Country:txt, Phone:txt, Fax:txt, HomePage:txt)\n  Territories(TerritoryID:txt*, TerritoryDescription:txt, RegionID:int)\nJOINS (foreign keys):\n  CustomerCustomerDemo.CustomerTypeID -> CustomerDemographics.CustomerTypeID\n  CustomerCustomerDemo.CustomerID -> Customers.CustomerID\n  EmployeeTerritories.TerritoryID -> Territories.TerritoryID\n  EmployeeTerritories.EmployeeID -> Employees.EmployeeID\n  Employees.ReportsTo -> Employees.EmployeeID\n  \"Order Details\".ProductID -> Products.ProductID\n  \"Order Details\".OrderID -> Orders.OrderID\n  Orders.ShipVia -> Shippers.ShipperID\n  Orders.CustomerID -> Customers.CustomerID\n  Orders.EmployeeID -> Employees.EmployeeID\n  Products.SupplierID -> Suppliers.SupplierID\n  Products.CategoryID -> Categories.CategoryID\n  Territories.RegionID -> Regions.RegionID",
         "constraints": "DATE WINDOW: date(OrderDate) BETWEEN '2017-12-01' AND '2017-12-31' (inclusive; from marketing_calendar::chunk2)\nDATES: OrderDate mixes 'YYYY-MM-DD' and 'YYYY-MM-DD HH:MM:SS'; always wrap it as date(OrderDate) so the closing day is not dropped.\nENTITY GRAIN: group by the entity's id column (CustomerID, CategoryID, ProductID, EmployeeID, SupplierID) and select its display name.\nREVENUE uses \"Order Details\".UnitPrice, never Products.UnitPrice.",
         "feedback": "none",
-        "sql": "SELECT COUNT(*) FROM Products WHERE Discontinued='1'",
-        "gold_sql": "SELECT COUNT(*) FROM Products WHERE Discontinued='1'",
-        "gold_answer": 8,
-        "gold_tables": [
-          "Products"
-        ],
-        "gold_chunks": [],
-        "route": "sql",
-        "ordered": false,
-        "retrieved_chunks": [
-          "product_policy::chunk1",
-          "catalog::chunk0",
-          "marketing_calendar::chunk2",
-          "product_policy::chunk2"
-        ]
+        "sql": "SELECT COUNT(*) FROM Orders WHERE date(OrderDate) BETWEEN '2017-12-01' AND '2017-12-31';"
       },
       {
-        "id": "train_added_ordered_top3_categories_qty_2019",
-        "question": "Top 3 categories by total quantity sold in 2019, highest first. Return list[{category:str, quantity:int}].",
-        "format_hint": "list[{category:str, quantity:int}]",
+        "augmented": true,
+        "question": "How many orders placed in 2018 have no shipped date recorded? Return an integer.",
+        "format_hint": "int",
         "db_schema": "TABLES (col:type, * = primary key):\n  Categories(CategoryID:int*, CategoryName:txt, Description:txt, Picture:blob)\n  CustomerCustomerDemo(CustomerID:txt*, CustomerTypeID:txt*)  [EMPTY TABLE - 0 rows]\n  CustomerDemographics(CustomerTypeID:txt*, CustomerDesc:txt)  [EMPTY TABLE - 0 rows]\n  Customers(CustomerID:txt*, CompanyName:txt, ContactName:txt, ContactTitle:txt, Address:txt, City:txt, Region:txt, PostalCode:txt, Country:txt, Phone:txt, Fax:txt)\n  EmployeeTerritories(EmployeeID:int*, TerritoryID:txt*)\n  Employees(EmployeeID:int*, LastName:txt, FirstName:txt, Title:txt, TitleOfCourtesy:txt, BirthDate:date, HireDate:date, Address:txt, City:txt, Region:txt, PostalCode:txt, Country:txt, HomePhone:txt, Extension:txt, Photo:blob, Notes:txt, ReportsTo:int, PhotoPath:txt)\n  \"Order Details\"(OrderID:int*, ProductID:int*, UnitPrice:num, Quantity:int, Discount:real)\n  Orders(OrderID:int*, CustomerID:txt, EmployeeID:int, OrderDate:date, RequiredDate:date, ShippedDate:date, ShipVia:int, Freight:num, ShipName:txt, ShipAddress:txt, ShipCity:txt, ShipRegion:txt, ShipPostalCode:txt, ShipCountry:txt)\n  Products(ProductID:int*, ProductName:txt, SupplierID:int, CategoryID:int, QuantityPerUnit:txt, UnitPrice:num, UnitsInStock:int, UnitsOnOrder:int, ReorderLevel:int, Discontinued:txt)\n  Regions(RegionID:int*, RegionDescription:txt)\n  Shippers(ShipperID:int*, CompanyName:txt, Phone:txt)\n  Suppliers(SupplierID:int*, CompanyName:txt, ContactName:txt, ContactTitle:txt, Address:txt, City:txt, Region:txt, PostalCode:txt, Country:txt, Phone:txt, Fax:txt, HomePage:txt)\n  Territories(TerritoryID:txt*, TerritoryDescription:txt, RegionID:int)\nJOINS (foreign keys):\n  CustomerCustomerDemo.CustomerTypeID -> CustomerDemographics.CustomerTypeID\n  CustomerCustomerDemo.CustomerID -> Customers.CustomerID\n  EmployeeTerritories.TerritoryID -> Territories.TerritoryID\n  EmployeeTerritories.EmployeeID -> Employees.EmployeeID\n  Employees.ReportsTo -> Employees.EmployeeID\n  \"Order Details\".ProductID -> Products.ProductID\n  \"Order Details\".OrderID -> Orders.OrderID\n  Orders.ShipVia -> Shippers.ShipperID\n  Orders.CustomerID -> Customers.CustomerID\n  Orders.EmployeeID -> Employees.EmployeeID\n  Products.SupplierID -> Suppliers.SupplierID\n  Products.CategoryID -> Categories.CategoryID\n  Territories.RegionID -> Regions.RegionID",
         "constraints": "DATES: OrderDate mixes 'YYYY-MM-DD' and 'YYYY-MM-DD HH:MM:SS'; always wrap it as date(OrderDate) so the closing day is not dropped.\nENTITY GRAIN: group by the entity's id column (CustomerID, CategoryID, ProductID, EmployeeID, SupplierID) and select its display name.\nREVENUE uses \"Order Details\".UnitPrice, never Products.UnitPrice.",
         "feedback": "none",
-        "sql": "SELECT c.CategoryName, SUM(od.Quantity) q FROM \"Order Details\" od JOIN Orders o ON o.OrderID=od.OrderID JOIN Products p ON p.ProductID=od.ProductID JOIN Categories c ON c.CategoryID=p.CategoryID WHERE date(o.OrderDate) BETWEEN '2019-01-01' AND '2019-12-31' GROUP BY c.CategoryID ORDER BY q DESC LIMIT 3",
-        "gold_sql": "SELECT c.CategoryName, SUM(od.Quantity) q FROM \"Order Details\" od JOIN Orders o ON o.OrderID=od.OrderID JOIN Products p ON p.ProductID=od.ProductID JOIN Categories c ON c.CategoryID=p.CategoryID WHERE date(o.OrderDate) BETWEEN '2019-01-01' AND '2019-12-31' GROUP BY c.CategoryID ORDER BY q DESC LIMIT 3",
-        "gold_answer": [
-          {
-            "category": "Confections",
-            "quantity": 222689
-          },
-          {
-            "category": "Beverages",
-            "quantity": 206998
-          },
-          {
-            "category": "Condiments",
-            "quantity": 205660
-          }
-        ],
-        "gold_tables": [
-          "Categories",
-          "Order Details",
-          "Orders",
-          "Products"
-        ],
-        "gold_chunks": [],
-        "route": "sql",
-        "ordered": true,
-        "retrieved_chunks": [
-          "catalog::chunk0",
-          "kpi_definitions::chunk2",
-          "product_policy::chunk1",
-          "product_policy::chunk2"
-        ]
+        "sql": "SELECT COUNT(*) FROM Orders WHERE OrderDate BETWEEN '2018-01-01' AND '2018-12-31' AND ShippedDate IS NULL"
       }
     ],
     "signature": {

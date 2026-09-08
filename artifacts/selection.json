@@ -1,0 +1,76 @@
+{
+  "configuration": "control",
+  "seed": 0,
+  "dev_score": 0.2,
+  "lm_calls": 15,
+  "cache_hits": 0,
+  "reason": "Ranked by mean dev score across seeds [0, 1], not by best single seed: control averaged 0.167 (spread 0.067). Uncompiled baseline averaged 0.000. The control was not beaten on mean dev score. Shipping it is the honest choice: its demos are gold SQL and therefore correct by construction, it costs zero LM calls to compile, and a bootstrapped artifact that does not beat it has not justified its cost or its extra failure modes. Shipping seed 0 (dev 0.200). Graders rerun with an unused seed, so spread is reported alongside the mean.",
+  "ranking_rule": "mean dev score across seeds, then lower compile cost, then lower seed-to-seed spread",
+  "all_configurations": [
+    {
+      "config": "control",
+      "seeds": [
+        0,
+        1
+      ],
+      "scores": {
+        "0": 0.2,
+        "1": 0.1333
+      },
+      "mean_dev_score": 0.1667,
+      "spread": 0.0667,
+      "mean_lm_calls": 15.0,
+      "mean_wall_seconds": 246.3
+    },
+    {
+      "config": "bootstrap",
+      "seeds": [
+        0,
+        1
+      ],
+      "scores": {
+        "0": 0.0667,
+        "1": 0.2
+      },
+      "mean_dev_score": 0.1333,
+      "spread": 0.1333,
+      "mean_lm_calls": 19.5,
+      "mean_wall_seconds": 278.4
+    },
+    {
+      "config": "baseline",
+      "seeds": [
+        0,
+        1
+      ],
+      "scores": {
+        "0": 0.0,
+        "1": 0.0
+      },
+      "mean_dev_score": 0.0,
+      "spread": 0.0,
+      "mean_lm_calls": 30.0,
+      "mean_wall_seconds": 590.2
+    }
+  ],
+  "shipped_artifact": "control_seed0.json",
+  "demos_in_shipped_artifact": [
+    {
+      "predictor": "generate",
+      "index": 0,
+      "augmented": false,
+      "question": "How many products are discontinued? Return an integer.",
+      "sql": "SELECT COUNT(*) FROM Products WHERE Discontinued='1'"
+    },
+    {
+      "predictor": "generate",
+      "index": 1,
+      "augmented": false,
+      "question": "Top 3 categories by total quantity sold in 2019, highest first. Return list[{category:str, quantity:int}].",
+      "sql": "SELECT c.CategoryName, SUM(od.Quantity) q FROM \"Order Details\" od JOIN Orders o ON o.OrderID=od.OrderID JOIN Products p ON p.ProductID=od.ProductID JOIN Categories c ON c.CategoryID=p.CategoryID WHERE date(o.OrderDate) BETWEEN '2019-01-01' AND '2019-12-31' GROUP BY c.CategoryID ORDER BY q DESC LIMIT 3"
+    }
+  ],
+  "model": "phi3.5:3.8b-mini-instruct-q4_K_M",
+  "num_ctx": 4096,
+  "max_demos": 2
+}

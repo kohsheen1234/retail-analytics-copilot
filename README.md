@@ -90,9 +90,84 @@ unseen phrasing rather than tuning to the visible set.
 
 ## DSPy analysis
 
-<!--RESULTS-->
+### 1. Results
 
----
+Full dev set (15 = 10 provided + 5 added), two seeds, cold cache per config-and-seed.
+
+| Configuration | Seed | Dev | LM calls | Cache hits | Wall |
+|---|---|---|---|---|---|
+| baseline zero-shot | 0 | 0.000 (0/15) | 30 | 0 | 784.3s |
+| baseline zero-shot | 1 | 0.000 (0/15) | 30 | 0 | 396.1s |
+| control `LabeledFewShot` k=2 | 0 | **0.200 (3/15)** | 15 | 0 | 250.9s |
+| control `LabeledFewShot` k=2 | 1 | 0.133 (2/15) | 15 | 0 | 241.7s |
+| `BootstrapFewShot` k=2 | 0 | 0.067 (1/15) | 17 | 0 | 248.1s |
+| `BootstrapFewShot` k=2 | 1 | 0.200 (3/15) | 22 | 0 | 308.7s |
+
+Means: baseline **0.000**, control **0.167** (spread 0.067), bootstrap **0.133** (spread
+0.133). 37.2 min total, over the 30-min budget — the reference machine is `<fill>`, so I
+report measured numbers rather than trim the dev set.
+
+**Shipped: `control` seed 0.** The ranking rule (mean across seeds, then compile cost,
+then spread) was fixed before the numbers existed; the control wins all three. Demos also
+halved LM calls and cut wall time 3×, ending the parse-failure retries that malformed
+zero-shot output caused.
+
+### 2. What changed
+
+No instruction text changed: in DSPy 3.3.1 both optimizers only set demos. The shipped
+artifact holds **2 demos, both verbatim gold, both correct** (re-scored through
+`sql_metric`) — `train_discontinued_products` and
+`train_added_ordered_top3_categories_qty_2019` (4-way join, `date()`-wrapped window,
+`ORDER BY … LIMIT 3`).
+
+The bootstrap audit matters more. Both its demos pass my metric, yet `bootstrap_seed0`
+demo[1] uses **bare `OrderDate BETWEEN`** — the bug the agent defends against three ways.
+It passes because none of the 21 unshipped 2018 orders falls on 2018-12-31, so it equals
+gold *here*, while the same pattern undercounts by 3, 4 and 1 orders on other windows. The
+metric is execution-grounded, not loose — equivalence on one example cannot see a
+latent bug that fires only on others.
+
+### 3. Per-example flips
+
+Baseline → control seed 0, three wrong→right: `dev_lowest_category_qty_2023` (`no such
+column: OrderDate`), `dev_added_legacy_aov_2014` (`near "BETWEDIR"`), and
+`dev_dairy_qty_winter_2017`, which ran but summed `Quantity * UnitPrice` instead of
+`Quantity` — the demo showed a bare `SUM(od.Quantity)`. Control → bootstrap seed 0 regressed
+all three (`BETWEDIR`; `no such column: od.Quantity`; `no such function: YEAR`) and gained
+`dev_products_in_beverages`: net 3→1. Only `dev_dairy_qty_winter_2017` passes in three of
+four compiled runs; the rest are coin-flips.
+
+### 4. Generalization
+
+Module dev score and end-to-end accuracy are different quantities: the agent scores **6/6
+on the eval set** while the bare module scores 3/15 on dev; the gap is the pipeline the dev
+metric never sees. **Module** hidden ≈ 0.10–0.25, i.e. no real gap, since 0.167 over 15 examples carries
+a ±0.10 interval that swamps generalization. **End-to-end** hidden ≈ 60–80% with 1–2
+justified escalations: below 6/6, because the eval set has no unresolvable conflict and no
+undocumented-COGS question, and because one provided training example is 91% similar to an
+eval question (`AI_USAGE.md` §6).
+
+### 5. Short answers
+
+**Teacher program.** The teacher runs the training inputs, the metric filters the traces,
+and survivors become demos. With no `teacher` argument it is a deepcopy of the student, so
+the teacher program *is* this `NL2SQL` module and the teacher LM *is* the pinned phi3.5 —
+the student teaches itself. It cannot introduce an idiom the model never emits, only pin
+down what it already got right, which is exactly why a demo carrying a latent date bug
+survived.
+
+**A float in (0,1) during bootstrapping.** `bootstrap.py:205` computes `metric_val =
+self.metric(...)`, then absent `metric_threshold` sets `success = metric_val` — used for
+**truthiness**. Any non-zero float is truthy, so 0.3 for "3 of 5 rows matched" admits that
+trace, and its wrong SQL is then shown to the model on every later call, silently. `bool`
+makes filter and scorer agree; note `if self.metric_threshold:` is falsey at `0.0`, so that
+threshold quietly restores truthiness.
+
+**Dev +30, hidden down.** Either (a) leakage or near-duplication, so dev measures
+memorisation, or (b) overfitting to demo *form* — an idiom suiting dev's question shapes
+that misfires elsewhere. Re-score dev with demo-overlapping examples removed: if the gain
+vanishes it is (a). Then check whether hidden failures cluster on the demos' idiom, which
+indicates (b).
 
 ## Optional tasks
 

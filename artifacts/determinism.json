@@ -1,0 +1,21 @@
+{
+  "batch": "sample_questions_hybrid_eval.jsonl",
+  "records": 6,
+  "gated_fields": [
+    "id",
+    "status",
+    "final_answer",
+    "sql",
+    "assumptions",
+    "repairs",
+    "citations",
+    "review_packet presence"
+  ],
+  "exempt_fields": [
+    "explanation",
+    "confidence"
+  ],
+  "deterministic": true,
+  "mismatches": [],
+  "explanation_differed_on": []
+}
