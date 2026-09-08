@@ -91,13 +91,26 @@ def make_bootstrap(train, seed):
 
 
 def make_bootstrap_rs(train, seed):
-    """OPTIONAL O1: BootstrapFewShotWithRandomSearch over demo subsets."""
+    """OPTIONAL O1: BootstrapFewShotWithRandomSearch over demo subsets.
+
+    `num_candidate_programs=3` rather than the library default of 16, disclosed because it
+    is a cost decision and not a neutral one. Random search evaluates N+2 candidate
+    programs against the valset, which defaults to the trainset (20 examples). At the
+    measured ~16s per LM call, the default 16 would be 18x20x16s per seed - roughly 1.6
+    hours - against 3, which is ~27 minutes. The search is correspondingly shallower, so a
+    poor result here is partly a budget artefact and is reported as such rather than as
+    evidence that random search does not help.
+
+    No hosted or larger model is used in any role: the student, the teacher and the
+    proposal LM are all the pinned phi3.5, which is why this is an O1 attempt on compute
+    rather than on model strength.
+    """
     from dspy.teleprompt import BootstrapFewShotWithRandomSearch
     opt = BootstrapFewShotWithRandomSearch(
         metric=sql_metric,
         max_bootstrapped_demos=MAX_DEMOS,
         max_labeled_demos=MAX_DEMOS,
-        num_candidate_programs=4,
+        num_candidate_programs=3,
         max_rounds=1,
     )
     return opt.compile(build_module(), trainset=train)

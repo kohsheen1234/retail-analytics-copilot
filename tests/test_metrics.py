@@ -237,3 +237,57 @@ def test_every_gold_sql_scores_itself_as_correct():
                 assert sql_metric(rec, Pred(rec["gold_sql"])) is True, rec["id"]
                 n += 1
     assert n == 33
+
+
+# --- OPTIONAL O2: the router metric -----------------------------------------
+
+class TestRouterMetric:
+    """O2 requires a second metric that can fail. Exact match over three labels does."""
+
+    def test_exact_match_passes(self):
+        from agent.metrics import router_metric
+        assert router_metric({"route": "hybrid"}, dspy_pred("hybrid")) is True
+
+    def test_wrong_label_fails(self):
+        from agent.metrics import router_metric
+        assert router_metric({"route": "hybrid"}, dspy_pred("sql")) is False
+
+    def test_no_partial_credit_for_being_close(self):
+        """`sql` on a `hybrid` question is wrong, not two-thirds right."""
+        from agent.metrics import router_metric
+        assert router_metric({"route": "hybrid"}, dspy_pred("sql")) in (False,)
+
+    def test_case_and_whitespace_are_forgiven(self):
+        from agent.metrics import router_metric
+        assert router_metric({"route": "rag"}, dspy_pred("  RAG \n")) is True
+
+    def test_unparseable_prediction_fails(self):
+        from agent.metrics import router_metric
+        assert router_metric({"route": "rag"}, dspy_pred("I think this needs the docs")) is False
+
+    def test_missing_label_fails_rather_than_passing_vacuously(self):
+        from agent.metrics import router_metric
+        assert router_metric({}, dspy_pred("rag")) is False
+
+    def test_returns_bool_in_both_modes(self):
+        from agent.metrics import router_metric
+        for trace in (None, [("p", {}, {})]):
+            assert isinstance(router_metric({"route": "sql"}, dspy_pred("sql"), trace), bool)
+
+    def test_the_shipped_rule_router_cannot_reach_1_0_on_provided_labels(self):
+        """The provided labels contradict each other, so a perfect score is unreachable.
+
+        Five revenue questions are labelled `hybrid`; train_top3_categories_revenue is
+        labelled `sql` with the identical formula. Any self-consistent classifier must
+        lose at least one of them.
+        """
+        from agent.datasets import load_split
+        from agent.modules import rule_route
+        recs = [r for r in load_split("train").records + load_split("dev").records if r.get("route")]
+        wrong = [r["id"] for r in recs if rule_route(r["question"]) != r["route"]]
+        assert wrong == ["train_top3_categories_revenue"], wrong
+
+
+def dspy_pred(route: str):
+    import dspy
+    return dspy.Prediction(route=route)

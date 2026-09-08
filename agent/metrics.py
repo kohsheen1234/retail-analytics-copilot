@@ -243,3 +243,28 @@ def sql_metric_verbose(example: Any, pred: Any, trace: Any = None) -> Outcome:
     if predicted is None and isinstance(pred, str):
         predicted = pred
     return evaluate_sql(example, predicted)
+
+
+# --- OPTIONAL O2: a second metric, for the Router --------------------------------
+
+def router_metric(example: Any, pred: Any, trace: Any = None) -> bool:
+    """Exact-match on the route label. Returns bool, for the same reason `sql_metric` does.
+
+    This metric *can* fail, and does: it is exact match over a three-way label, so a
+    prediction of `sql` where the label says `hybrid` scores 0 with no partial credit for
+    "at least it knew SQL was involved".
+
+    A caveat that belongs in the metric rather than only in the write-up: the provided
+    `route` labels are not self-consistent. Five revenue questions are labelled `hybrid`
+    with `gold_chunks: ["kpi_definitions::chunk3"]`, while `train_top3_categories_revenue`
+    is labelled `sql` with `gold_chunks: []` despite using the identical discount-adjusted
+    revenue formula. So a perfect score against these labels is unreachable for any
+    self-consistent classifier, and ~0.97 is the practical ceiling. Optimizing hard against
+    them teaches the inconsistency, which is exactly why the shipped router is rule-based
+    and this is an optional-task experiment rather than the production path.
+    """
+    want = (_field(example, "route") or "").strip().lower()
+    got = _field(pred, "route")
+    if got is None and isinstance(pred, str):
+        got = pred
+    return bool(want) and (got or "").strip().lower() == want
