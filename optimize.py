@@ -32,9 +32,16 @@ from agent.modules import NL2SQL
 
 # num_ctx is 4096 and cannot be raised. DSPy's chat adapter renders each demonstration
 # with every input field, including the ~580-token live schema, so demo count is bounded
-# by context rather than by taste: 2 demos leaves roughly 1.2k tokens of headroom for the
-# real question plus 512 output tokens, 4 would overflow. This is the single most
-# consequential number in this file and it is a property of the pinned environment.
+# by context rather than by taste. Measured on a real dev question, prompt tokens plus the
+# 512 reserved output tokens:
+#
+#     k=0  1108 + 512 = 1620 of 4096
+#     k=1  1879 + 512 = 2391
+#     k=2  2703 + 512 = 3215      <- shipped: 881 tokens of headroom
+#     k=3  3435 + 512 = 3947      <- 149 tokens of headroom; a longer question overflows
+#
+# So 2 is not a round number, it is the largest k that still tolerates a question and a
+# constraint block above average length. Asserted in tests/test_demos_render.py.
 MAX_DEMOS = 2
 
 

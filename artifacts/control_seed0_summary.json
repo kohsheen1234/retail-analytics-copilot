@@ -1,0 +1,31 @@
+{
+  "config": "control",
+  "seed": 0,
+  "dev_score": 0.0,
+  "dev_correct": 0,
+  "dev_total": 15,
+  "lm_calls": 30,
+  "cache_hits": 0,
+  "billable_lm_calls": 30,
+  "wall_seconds": 342.8,
+  "max_demos": 2,
+  "train_size": 20,
+  "demos": [
+    {
+      "predictor": "generate",
+      "index": 0,
+      "augmented": false,
+      "question": "How many products are discontinued? Return an integer.",
+      "sql": ""
+    },
+    {
+      "predictor": "generate",
+      "index": 1,
+      "augmented": false,
+      "question": "Top 3 categories by total quantity sold in 2019, highest first. Return list[{category:str, quantity:int}].",
+      "sql": ""
+    }
+  ],
+  "model": "phi3.5:3.8b-mini-instruct-q4_K_M",
+  "num_ctx": 4096
+}

@@ -202,6 +202,15 @@ def to_example(rec: dict) -> dspy.Example:
         format_hint=rec["format_hint"],
         db_schema=schema_text(),
         constraints=constraints_text(plan),
+        # `feedback` is an input field on GenerateSQL, and `sql` is its OUTPUT field.
+        # Both must be present or DSPy silently drops the example as a demonstration:
+        # the chat adapter renders a demo only when it can fill every input and every
+        # output the signature declares. Storing the answer solely as `gold_sql` made
+        # LabeledFewShot a no-op -- the compiled control produced a prompt byte-identical
+        # to the zero-shot baseline (4405 chars both) and therefore identical predictions
+        # on all 15 dev examples. See DECISIONS.md 2026-09-08.
+        feedback="none",
+        sql=rec.get("gold_sql", ""),
         gold_sql=rec.get("gold_sql", ""),
         gold_answer=rec.get("gold_answer"),
         gold_tables=rec.get("gold_tables", []),
@@ -209,7 +218,7 @@ def to_example(rec: dict) -> dspy.Example:
         route=rec.get("route", "sql"),
         ordered=bool(ordered),
         retrieved_chunks=chunk_ids,
-    ).with_inputs("question", "format_hint", "db_schema", "constraints")
+    ).with_inputs("question", "format_hint", "db_schema", "constraints", "feedback")
 
 
 def load_examples(which: str, sql_only: bool = False) -> list[dspy.Example]:
