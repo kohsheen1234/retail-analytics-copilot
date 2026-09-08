@@ -1,11 +1,7 @@
-# The assessment brief must not be committed (both versions of the brief agree on this).
-candidate_pack/
+# The assessment brief is not public, and must never be committed.
 ASSESSMENT.md
 *.pdf
-
-# Never commit the database: it is fetched from the invitation URL and is large.
-data/*.sqlite
-data/*.sqlite-*
+candidate_pack/
 
 .venv/
 __pycache__/
@@ -13,6 +9,13 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 
-# DSPy / litellm caches are machine-local and must not be shipped as "results".
+# LM response caches are machine-local. Committing one would make reported
+# timings and LM-call counts irreproducible while looking like results.
 .dspy_cache/
 .litellm_cache/
+
+# data/northwind.sqlite IS committed: the assessment lists "data/ including the
+# database" as a deliverable. Transient sqlite sidecars are not.
+data/*.sqlite-wal
+data/*.sqlite-shm
+data/*.sqlite-journal

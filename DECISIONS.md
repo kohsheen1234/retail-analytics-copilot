@@ -100,37 +100,34 @@ fully auditable so any mismatch is visible rather than silent.
 
 ---
 
-## 2026-09-07 — Public vs private repository: the pack contradicts the brief
+## 2026-09-07 — Repository visibility: contradiction, then resolution
 
-**Observation.** Two documents disagree about a real, irreversible action.
-`candidate_pack/ASSESSMENT.md` says: "A **public** GitHub repository, link sent to the
-address in your invitation" and "Your repository is public; the assessment document
-itself is not... Other candidates' public repositories exist." The brief I was given
-(headed *Version 2.1 (September 2026)*) says: "Repository (GitHub link, **private**,
-shared with the address in your invitation)" and "Do not publish this assessment or your
-repository, share either with another person, or place them in a public dataset."
-`ASSESSMENT.md` carries no version header, so I cannot date the two against each other
-except that 2.1 is explicitly the later-numbered artifact.
+**Observation (2026-09-07).** Two documents disagreed about an irreversible action. The
+pack's `ASSESSMENT.md` called for a public repository; the brief I was working from,
+headed *Version 2.1*, called for a private one and said not to publish the repository.
 
 **Options.** (a) Public, per the pack. (b) Private, per the versioned brief. (c) Ask.
 
-**Choice.** (b) private, and (c) — flagged to the human before any repository is created
-or pushed. Nothing is pushed anywhere until that is confirmed.
+**Choice.** (b) private, and (c) — flagged, with nothing pushed until it was settled.
 
 **Reason.** The two readings are not symmetric in cost. Publishing something that should
-have stayed private is irreversible — it is indexable and scrapeable within minutes and
-the pack itself warns that a public dataset is a concern. Keeping a repository private
-when public was wanted is a one-click fix. Under a genuine documentation conflict, take
-the recoverable branch. The later version number also favours private.
+have stayed private is irreversible and indexable within minutes; keeping a repository
+private when public was wanted is one command. Under an unresolved documentation
+conflict, take the recoverable branch.
 
-**Both documents agree** on the parts I can act on without asking: do **not** commit
-`ASSESSMENT.md` or the PDF, and never put the invitation URL, the checksum, or any
-credential in the repo or into an AI tool. `candidate_pack/` is therefore in
-`.gitignore` in its entirety, and the working copies of `docs/`, `data/*.jsonl` and the
-starter files were copied to the repo root, which both documents permit.
+**Resolution (2026-09-08).** A corrected v2.1 brief settled it: "You submit a public
+GitHub repository", repeated in the deliverables and the constraints. Both documents now
+agree, so the repository was switched to public. The conservative default cost nothing
+except one `gh` call.
 
-**Revisit.** On confirmation. If public is confirmed, re-audit the history for anything
-pack-derived that should not be there before the first push.
+**What did not change.** Both versions agree, and still agree, that `ASSESSMENT.md` and
+the PDF are never committed and that no credential goes into the repository or into an AI
+tool. `candidate_pack/`, `ASSESSMENT.md` and `*.pdf` are in `.gitignore`, and I audited
+every commit for a stray checksum, URL or token before the first push.
+
+**Revisit.** Nothing pending. The lesson I would keep: when two versions of a spec
+disagree on a one-way door, pick the reversible side and say so, rather than guessing
+which document is newer.
 
 ---
 
@@ -660,3 +657,57 @@ named after a real table (`WITH Products AS (...) SELECT ... FROM Products`) mus
 **Revisit.** Worth noting for the live session: passing on a labelled dataset is weaker
 evidence than it looks when the dataset does not exercise the shape. The adversarial
 unit tests found this; the 23 real examples did not.
+
+---
+
+## 2026-09-08 — Corrected assessment (v2.1) arrived; what it changed
+
+**Observation.** A corrected brief replaced the one I had been working from. Five
+substantive differences, and one thing it did *not* fix.
+
+1. **Visibility resolved: public.** Handled above.
+2. **The database now ships inside the pack**, with its SHA-256 published in the brief
+   itself (`2f4f5c68…2877`) rather than held in the invitation email, and with an explicit
+   warning that the Northwind build circulating online under the same filename is a
+   *different* file whose numbers will not match.
+3. **`data/` including the database is now a listed deliverable**, so the database is to
+   be committed.
+4. **`train.jsonl` / `dev.jsonl` are specified to carry an `ordered` field** — the flag
+   my metric needs and whose absence I had flagged as a defect.
+5. **The pack is the repository skeleton**, with `ENVIRONMENT.md`, `requirements.txt`,
+   `sqlite_tool.py`, `chunker.py`, `models.py` at the root rather than under `starter/`,
+   and a `.gitignore` that keeps `ASSESSMENT.md` out.
+
+**What I changed.** `.gitignore` no longer excludes `data/*.sqlite` (only the transient
+`-wal`/`-shm`/`-journal` sidecars). `agent/config.py` records `DB_SHA256`, and
+`tests/test_database_identity.py` asserts it, skipping while the file is absent. The
+checksum is publishable now that the brief publishes it; it was withheld before because
+the earlier brief classed it with credentials.
+
+**What needed no change.** The root layout I had already flattened to now matches the new
+skeleton exactly, and `requirements.txt` is still byte-identical, which the new brief
+asks for in the same words ("pinned, unchanged"). The `ordered` handling also needed no
+change: the loader was written to prefer an explicit flag and only infer when it is
+absent, so specified data simply takes the first branch.
+
+**What the update did not fix.** The pack on this machine is still the older one — both
+copies in `~/Downloads` are byte-identical (`8e7df933…a6b`), lay files out under
+`starter/`, contain no database, and their `train.jsonl`/`dev.jsonl` still have keys
+`[format_hint, gold_answer, gold_chunks, gold_sql, gold_tables, id, question, route]`
+with **no `ordered` field**. So the corrected *text* is here and the corrected *files*
+are not.
+
+**Consequence, recorded deliberately.** My `ordered`-inference rule stays in place and
+becomes a compatibility path rather than a correction: with the specified data it never
+fires, and with the data I actually hold it prevents a reversed top-N from scoring as
+correct. `--ordered-mode literal` still reproduces the strict reading. If the corrected
+data files arrive, the only thing that changes is that the inference stops being used,
+and the tests already cover both branches.
+
+**Revisit.** When the v2.1 pack lands: re-verify the database checksum, diff the new
+`docs/` against `artifacts/corpus_manifest.json` (they should be identical — if they are
+not, every citation in the corpus needs re-checking), diff the new `ENVIRONMENT.md` for a
+filled-in model digest and a resolution of the Python 3.11 / `numpy==2.5.2` conflict, and
+confirm the new `train`/`dev` `ordered` flags agree with what my rule inferred. That last
+check is worth doing precisely because a disagreement would tell me my inference was
+wrong somewhere.

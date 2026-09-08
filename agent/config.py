@@ -20,6 +20,11 @@ TRACES_DIR = ROOT / "traces"
 
 DB_PATH = Path(os.environ.get("NORTHWIND_DB", DATA_DIR / "northwind.sqlite"))
 
+# Published in the assessment, so it can live in the repo. The brief warns that the
+# Northwind build circulating online under the same name is a different file whose
+# numbers will not match, so the checksum is worth asserting rather than assuming.
+DB_SHA256 = "2f4f5c68dfcd33ba27373eae48c7a4869800c68095ee0f9f0da494f83382a877"
+
 BEST_ARTIFACT = ARTIFACTS_DIR / "best.json"
 SELECTION_FILE = ARTIFACTS_DIR / "selection.json"
 
