@@ -1,0 +1,179 @@
+{
+  "retrieval": {
+    "scored_examples": 17,
+    "rows": [
+      {
+        "k": 2,
+        "mode": "bm25",
+        "recall": 0.9444,
+        "gold_chunks_found": 17,
+        "gold_chunks_total": 18,
+        "mean_chunks_to_planner": 2.0
+      },
+      {
+        "k": 2,
+        "mode": "bm25+conflict",
+        "recall": 0.9444,
+        "gold_chunks_found": 17,
+        "gold_chunks_total": 18,
+        "mean_chunks_to_planner": 2.03
+      },
+      {
+        "k": 2,
+        "mode": "bm25+conflict+definition",
+        "recall": 1.0,
+        "gold_chunks_found": 18,
+        "gold_chunks_total": 18,
+        "mean_chunks_to_planner": 2.26
+      },
+      {
+        "k": 3,
+        "mode": "bm25",
+        "recall": 0.9444,
+        "gold_chunks_found": 17,
+        "gold_chunks_total": 18,
+        "mean_chunks_to_planner": 3.0
+      },
+      {
+        "k": 3,
+        "mode": "bm25+conflict",
+        "recall": 0.9444,
+        "gold_chunks_found": 17,
+        "gold_chunks_total": 18,
+        "mean_chunks_to_planner": 3.0
+      },
+      {
+        "k": 3,
+        "mode": "bm25+conflict+definition",
+        "recall": 1.0,
+        "gold_chunks_found": 18,
+        "gold_chunks_total": 18,
+        "mean_chunks_to_planner": 3.09
+      },
+      {
+        "k": 4,
+        "mode": "bm25",
+        "recall": 0.9444,
+        "gold_chunks_found": 17,
+        "gold_chunks_total": 18,
+        "mean_chunks_to_planner": 4.0
+      },
+      {
+        "k": 4,
+        "mode": "bm25+conflict",
+        "recall": 0.9444,
+        "gold_chunks_found": 17,
+        "gold_chunks_total": 18,
+        "mean_chunks_to_planner": 4.0
+      },
+      {
+        "k": 4,
+        "mode": "bm25+conflict+definition",
+        "recall": 1.0,
+        "gold_chunks_found": 18,
+        "gold_chunks_total": 18,
+        "mean_chunks_to_planner": 4.06
+      },
+      {
+        "k": 5,
+        "mode": "bm25",
+        "recall": 1.0,
+        "gold_chunks_found": 18,
+        "gold_chunks_total": 18,
+        "mean_chunks_to_planner": 5.0
+      },
+      {
+        "k": 5,
+        "mode": "bm25+conflict",
+        "recall": 1.0,
+        "gold_chunks_found": 18,
+        "gold_chunks_total": 18,
+        "mean_chunks_to_planner": 5.0
+      },
+      {
+        "k": 5,
+        "mode": "bm25+conflict+definition",
+        "recall": 1.0,
+        "gold_chunks_found": 18,
+        "gold_chunks_total": 18,
+        "mean_chunks_to_planner": 5.03
+      },
+      {
+        "k": 6,
+        "mode": "bm25",
+        "recall": 1.0,
+        "gold_chunks_found": 18,
+        "gold_chunks_total": 18,
+        "mean_chunks_to_planner": 6.0
+      },
+      {
+        "k": 6,
+        "mode": "bm25+conflict",
+        "recall": 1.0,
+        "gold_chunks_found": 18,
+        "gold_chunks_total": 18,
+        "mean_chunks_to_planner": 6.0
+      },
+      {
+        "k": 6,
+        "mode": "bm25+conflict+definition",
+        "recall": 1.0,
+        "gold_chunks_found": 18,
+        "gold_chunks_total": 18,
+        "mean_chunks_to_planner": 6.03
+      },
+      {
+        "k": 8,
+        "mode": "bm25",
+        "recall": 1.0,
+        "gold_chunks_found": 18,
+        "gold_chunks_total": 18,
+        "mean_chunks_to_planner": 7.8
+      },
+      {
+        "k": 8,
+        "mode": "bm25+conflict",
+        "recall": 1.0,
+        "gold_chunks_found": 18,
+        "gold_chunks_total": 18,
+        "mean_chunks_to_planner": 7.8
+      },
+      {
+        "k": 8,
+        "mode": "bm25+conflict+definition",
+        "recall": 1.0,
+        "gold_chunks_found": 18,
+        "gold_chunks_total": 18,
+        "mean_chunks_to_planner": 7.8
+      }
+    ]
+  },
+  "routing": {
+    "n": 35,
+    "accuracy": 0.9714,
+    "confusion": {
+      "hybrid->hybrid": 15,
+      "rag->rag": 2,
+      "sql->hybrid": 1,
+      "sql->sql": 17
+    },
+    "disagreements": [
+      {
+        "id": "train_top3_categories_revenue",
+        "label": "sql",
+        "rules": "hybrid",
+        "gold_chunks": []
+      }
+    ]
+  },
+  "static": {
+    "broken_detected": "5/5",
+    "gold_statements_checked": 33,
+    "false_positives": 0,
+    "false_positive_sql": []
+  },
+  "citations": {
+    "exact": "33/33",
+    "mismatches": []
+  }
+}

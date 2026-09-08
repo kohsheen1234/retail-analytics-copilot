@@ -131,7 +131,7 @@ class Confidence:
 def score_confidence(*, route: str, repairs: int, rows: int, conflicts_resolved: int,
                      invented_approximation: bool, doc_precedence_applied: bool,
                      legacy_window_ambiguity: bool, used_fallback_route: bool,
-                     baseline_artifact: bool) -> Confidence:
+                     baseline_artifact: bool, supplied_approximation: bool = False) -> Confidence:
     c = Confidence()
     if route == "rag":
         # No executable check on a document lookup: nothing verifies the extraction.
@@ -150,6 +150,12 @@ def score_confidence(*, route: str, repairs: int, rows: int, conflicts_resolved:
         c.penalise(0.05, "router fell back to the deterministic prior")
     if baseline_artifact:
         c.penalise(0.05, "running the uncompiled baseline module")
+    if supplied_approximation:
+        # Contract-correct -- the question defines the proxy, so the gold uses it too --
+        # but the figure is an estimate rather than a measured margin, and the
+        # substitution point in the formula is a judgement call. Penalised, not capped:
+        # capping here would under-report confidence on answers that are in fact right.
+        c.penalise(0.10, "answer uses an approximation supplied by the question")
     if invented_approximation:
         c.cap(0.60, "answer rests on an approximation the corpus does not document")
     return c

@@ -308,6 +308,8 @@ def make_graph(deps: Deps, tracer: Tracer):
                 rows=len(state.get("rows") or []),
                 conflicts_resolved=len(resolved),
                 invented_approximation=bool(plan.blocking_missing_fields),
+                supplied_approximation=bool(plan.supplied_approximations
+                                            and plan.missing_fields),
                 doc_precedence_applied=any(c.resolved_by == "document-precedence" for c in resolved),
                 legacy_window_ambiguity=_legacy_ambiguity(state, plan),
                 used_fallback_route=bool(state.get("router_detail", {}).get("used_fallback")),

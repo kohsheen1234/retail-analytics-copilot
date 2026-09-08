@@ -190,7 +190,13 @@ def test_generalises_to_an_unseen_document():
         Hit("loyalty_program::chunk2", 2.0, "bm25",
             "## Points Per Dollar\n- PPD = SUM(Points) / SUM(UnitPrice * Quantity)"),
     ]
+    # The campaign window parses from a document that does not exist in the corpus.
     p = build_plan("What were sales during Autumn Loyalty 2019?", hits, COLUMNS)
     assert (p.chosen_window.start, p.chosen_window.end) == ("2019-09-01", "2019-11-30")
-    assert any(k.name == "PPD" for k in p.kpi_formulas)
-    assert "Points" in {f for f, _, _ in p.missing_fields}
+    # ...and its formula stays out of the plan, because this question does not invoke it.
+    assert not any(k.name == "PPD" for k in p.kpi_formulas)
+
+    # Naming the metric brings the formula in, and its missing column is detected.
+    p2 = build_plan("What was points per dollar during Autumn Loyalty 2019?", hits, COLUMNS)
+    assert any(k.name == "PPD" for k in p2.kpi_formulas)
+    assert "Points" in {f for f, _, _ in p2.missing_fields}

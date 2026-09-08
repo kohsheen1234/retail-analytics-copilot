@@ -23,7 +23,7 @@ import re
 from dataclasses import dataclass, field
 
 from agent.injection import line_verdict
-from agent.retriever import Hit, entity_names
+from agent.retriever import Hit, entity_names, heading_variants, _stems
 
 DATE = r"(\d{4}-\d{2}-\d{2})"
 
@@ -374,11 +374,36 @@ def resolve_window(question: str, windows: list[DateWindow], chunks: list[Hit],
     return chosen, conflicts, assumptions
 
 
+def kpi_relevant(question: str, formula: KpiFormula, chunk_content: str) -> bool:
+    """Is this formula actually invoked by the question?
+
+    Retrieval is lexical, so a chunk can arrive on noise. "How many orders were shipped
+    to France in 2019?" retrieves `kpi_definitions::chunk2` (Gross Margin) on shared
+    vocabulary; the planner then found `CostOfGoods` missing from the schema and the
+    review gate escalated a trivially answerable count. Under the published escalation
+    scoring that turns a 1.0 into a 0.25, so relevance has to be checked before a formula
+    is allowed to constrain -- or block -- an answer.
+
+    Matched on the formula's own name and on its heading's variants, so "gross margin",
+    "margin" and "GM" all reach the same chunk, and a formula in a document nobody has
+    seen behaves the same way.
+    """
+    qs = _stems(question)
+    names = {formula.name} | set(heading_variants(chunk_content))
+    for n in names:
+        ns = _stems(n)
+        if ns and ns <= qs:
+            return True
+    return False
+
+
 def build_plan(question: str, chunks: list[Hit], schema_columns: set[str]) -> Plan:
     """Assemble every constraint the downstream nodes are allowed to rely on."""
     pinned = pinned_sources(question, chunks)
     windows = extract_date_windows(chunks)
-    kpis = extract_kpis(chunks)
+    by_id = {h.chunk_id: h.content for h in chunks}
+    kpis = [k for k in extract_kpis(chunks)
+            if kpi_relevant(question, k, by_id.get(k.source, ""))]
     chosen, conflicts, assumptions = resolve_window(question, windows, chunks, pinned)
 
     plan = Plan(

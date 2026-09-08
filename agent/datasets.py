@@ -172,8 +172,7 @@ def constraints_text(plan: Plan) -> str:
         parts.append(f"DATE WINDOW: date(OrderDate) BETWEEN '{w.start}' AND '{w.end}' "
                      f"(inclusive; from {w.source})")
     for k in plan.kpi_formulas:
-        if k.status != "legacy" or True:
-            parts.append(f"FORMULA {k.name} [{k.status}]: {k.expr}")
+        parts.append(f"FORMULA {k.name} [{k.status}]: {k.expr}")
     for group, members in plan.reporting_groups.items():
         joined = ", ".join(f"'{m}'" for m in members)
         parts.append(f"REPORTING GROUP '{group}' = CategoryName IN ({joined})")
