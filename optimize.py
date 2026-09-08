@@ -113,7 +113,15 @@ def make_bootstrap_rs(train, seed):
         num_candidate_programs=3,
         max_rounds=1,
     )
-    return opt.compile(build_module(), trainset=train)
+    # An explicit valset, held out from the back of the (already seed-shuffled) trainset.
+    # Two reasons. Correctness: with valset=None the search selects candidates on the same
+    # 20 examples the demos were bootstrapped from, which is selection on the training set.
+    # Cost: each candidate is scored over the whole valset, so 20 examples at the measured
+    # ~25s per call is ~8 minutes per candidate and roughly two hours for two seeds. Eight
+    # held-out examples keeps the selection honest and the run finishable; the trade-off is
+    # a noisier selection signal, which is reported rather than hidden.
+    holdout = 8
+    return opt.compile(build_module(), trainset=train[:-holdout], valset=train[-holdout:])
 
 
 CONFIGS = {
