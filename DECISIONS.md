@@ -711,3 +711,237 @@ filled-in model digest and a resolution of the Python 3.11 / `numpy==2.5.2` conf
 confirm the new `train`/`dev` `ordered` flags agree with what my rule inferred. That last
 check is worth doing precisely because a disagreement would tell me my inference was
 wrong somewhere.
+
+---
+
+## 2026-09-08 — The database arrived, and its published checksum does not match
+
+**Observation.** `data/northwind.sqlite` is 24 MB. Three identical copies were delivered
+(repo root and two in `~/Downloads`, all `fb24a4f7…3dd5`). The assessment publishes
+`2f4f5c68…2877`. **They disagree**, and the brief is emphatic on this exact point: "Do
+not substitute another Northwind build; the file that circulates online under that name
+is not the same and your numbers will not match ours."
+
+So either I have the wrong file, or the published checksum is wrong. A hash cannot tell
+me which, but the gold data can: I executed all 23 provided gold SQL statements and
+compared against the provided `gold_answer` values.
+
+**Result: 23 matched, 0 mismatched, 0 errored.** Including floats to two decimals on
+magnitudes around 4.5e8 (`448386633.17`), `24742.82`, `0.79`, and exact string matches on
+`Aux joyeux ecclésiastiques`, `QUICK-Stop`, `Peacock`, `Zaanse koeken`.
+
+**Options.** (a) Refuse to proceed until a file matching the published checksum arrives.
+(b) Hunt for another Northwind build that matches the hash. (c) Use the delivered file,
+record both hashes, and make the semantic check the binding one.
+
+**Choice.** (c).
+
+**Reason.** Reproducing 23 independent gold answers — several of them 11-significant-digit
+floats — is far stronger evidence of identity than a hash. No other Northwind build could
+satisfy it; the probability of coincidence is nil. (b) is the one option the brief
+explicitly warns against, and it would mean discarding a file that demonstrably *is* the
+reference. (a) would burn the remaining budget on a documentation defect.
+
+`agent/config.py` now records `DB_SHA256_PUBLISHED` and `DB_SHA256_OBSERVED`, and
+`tests/test_database_identity.py` asserts the gold reproduction example-by-example (24
+tests) while treating the hash as a cheap "did the file change under me" guard that
+passes if *either* value matches. If the corrected pack later ships a file matching the
+published hash, the test passes silently and the gold check still binds.
+
+**Revisit.** Raise the checksum discrepancy in the live session — the graders may have
+re-packaged the database after computing the hash. If their reference file really is a
+different build, then their gold answers differ from the ones shipped in `train.jsonl`,
+which would be a much larger problem than a stale checksum and would show up immediately
+as a 0/23 reproduction on their machine.
+
+---
+
+## 2026-09-08 — `OrderDate`: two formats, two populations, and `date()` is sufficient
+
+**Observation.** I flagged this as `UNVERIFIED` earlier and worried that `date()` might
+be a partial fix, because it returns NULL on anything it cannot parse and those rows would
+vanish from *both* sides of the starter's own regression test while it still passed.
+Measured:
+
+| storage | rows | range | OrderID range |
+|---|---|---|---|
+| `TEXT` len 19 (`YYYY-MM-DD HH:MM:SS`) | 15,452 | 2012-07-10 .. 2023-10-28 | 11078 .. 26529 |
+| `TEXT` len 10 (`YYYY-MM-DD`) | 830 | 2016-07-04 .. 2018-05-06 | 10248 .. 11077 |
+
+`OrderDate IS NULL`: **0**. `date(OrderDate) IS NULL`: **0**. So there is no third format
+and `date()` parses every row — the worry is retired, with evidence.
+
+**The two formats are two populations.** 830 bare-date rows in `OrderID 10248..11077` is
+exactly classic Northwind's order count and its exact ID range; the 15,452 timestamped
+rows are synthetic and sit outside it. The fixture was built by re-dating real Northwind
+and appending generated orders, and the storage format is the seam. Useful to know: a
+question restricted to the original data can be expressed as `length(OrderDate)=10`,
+though I would not rely on that as a documented interface.
+
+**Why it matters, quantified.** Only the timestamped rows are lost to a bare comparison,
+because `'2017-06-30 09:14:48' > '2017-06-30'` lexicographically:
+
+| window | bare `BETWEEN` | `date()` wrapped | orders dropped |
+|---|---|---|---|
+| 2017-06-01 .. 06-30 | 131 | 134 | 3 |
+| 2017-12-01 .. 12-31 | 158 | 159 | 1 |
+| 2018-01-01 .. 03-31 | 501 | 505 | 4 |
+
+On the provided eval question `hybrid_revenue_beverages_summer_2017` that is the
+difference between **611,562.68** (correct) and **591,887.18** (bare `BETWEEN`) — a 3.2%
+undercount that looks entirely plausible and is indistinguishable from the right answer
+without the gold. Five orders fall on 2017-06-30 and three of them are timestamped.
+
+**Choice.** Unchanged from the earlier entry, now evidence-backed: inclusive
+`date(col) BETWEEN start AND end`, enforced at three layers — planner-supplied
+constraint, few-shot demos, and a lint on generated SQL that triggers a repair rather
+than a silent rewrite.
+
+**Revisit.** `RequiredDate` and `ShippedDate` are also `DATETIME`; I have only verified
+`OrderDate`. Any question filtering on those needs the same treatment, and the lint keys
+on column names ending in `Date`, so it already covers them.
+
+---
+
+## 2026-09-08 — CORRECTION: there *is* pre-2016 data, so the legacy AOV can apply
+
+**Observation.** In the earlier KPI entry I wrote that "the database starts in 2016
+(`train_top_customer_orders_2016`), so the legacy definition can *never* apply to a date
+window that has data". **That was wrong.** I inferred the range from the provided
+examples instead of measuring it. Orders per year:
+
+```
+2012:   654   2016: 1,506   2020: 1,376
+2013: 1,351   2017: 1,780   2021: 1,420
+2014: 1,351   2018: 1,549   2022: 1,352
+2015: 1,449   2019: 1,362   2023: 1,132
+```
+
+**4,805 orders fall strictly before 2016-01-01** — the exact period in which the legacy
+AOV definition (retired 2015-12-31) was the one in force, and in which the current
+definition (effective 2016-01-01) had not yet taken effect.
+
+**Consequence.** This turns a dead branch into a live ambiguity. For a question like
+"what was the AOV in 2014", two readings are defensible: the *current* formula, because
+`kpi_definitions::chunk1` says the legacy one is for "historical comparisons when a
+report explicitly asks for the legacy figure"; or the *legacy* formula, because it is the
+definition that was effective during the window being reported on.
+
+**Options.** (a) Always default to current, per the document's explicit gating on the
+question. (b) Use the definition effective during the window. (c) Escalate any pre-2016
+AOV question as ambiguous.
+
+**Choice.** (a), with the effective-date tension named in `assumptions` whenever the
+window starts before 2016-01-01, and confidence reduced for that case.
+
+**Reason.** The document gates the legacy formula on the *question* asking for it, not on
+the date, and that is the more specific instruction. (b) silently substitutes a formula
+the document calls retired. (c) over-escalates: the document does give an answer, so a
+`needs_review` here would score 0.25 rather than 1.0. But a reader could reasonably
+disagree, which is exactly what `assumptions` is for.
+
+**Revisit.** I got this wrong by reasoning from the sample instead of the population. The
+lesson generalises past this entry: every claim in this file that came from reading
+`train.jsonl` rather than querying the database needed re-checking, which is why the
+earlier entries carry explicit `UNVERIFIED` markers. This is the one that failed.
+
+---
+
+## 2026-09-08 — Two junk customer rows, and the aggregation grain that flips top-N answers
+
+**Observation.** `Customers` has 93 rows; classic Northwind has 91. The two extras are
+not customers:
+
+```
+CustomerID  CompanyName  ContactName   City  Country  Region  Phone
+'Val2 '     'IT'         'Val2'        NULL  NULL     NULL    NULL
+'VALON'     'IT'         'Valon Hoti'  NULL  NULL     NULL    NULL
+```
+
+Test rows left in the fixture, with a person's name in `ContactName` and every address
+field NULL. They are not inert: **176 orders / $4,925,094.61** and **159 orders /
+$4,820,276.68**. Three separate hazards fall out.
+
+1. **`CustomerID='Val2 '` has a trailing space.** `WHERE CustomerID='Val2'` returns 0
+   rows; `='Val2 '` returns 1. Any lookup by a trimmed identifier silently finds nothing.
+2. **Two distinct customers share `CompanyName='IT'`**, so the aggregation grain decides
+   the answer. Grouping by the display name merges them into one $9.75M entity:
+
+   | question | `GROUP BY CustomerID` | `GROUP BY CompanyName` |
+   |---|---|---|
+   | top customer by revenue, all-time | B's Beverages, 6,154,115.34 | **IT, 9,745,371.29** |
+   | most orders in 2016 | **QUICK-Stop, 27** | **IT, 35** |
+   | top customer by GM 2017 | Wilman Kala, 251,847.49 | Wilman Kala (unchanged) |
+
+3. **Blank `Country`** means a "revenue by customer country" rollup either drops them or
+   produces a blank bucket carrying $9.75M.
+
+**The provided gold settles the convention.** `train_top_customer_orders_2016` golds
+`{"customer": "QUICK-Stop", "orders": 27}` — which is the `GROUP BY CustomerID` answer.
+Had the intended grain been the display name, the gold would have been `IT, 35`. Every
+provided gold SQL follows the same pattern: `GROUP BY <id column>`, select the display
+name.
+
+**Options.** (a) Group by whatever the display column is, which is what a text-to-SQL
+model naturally emits when asked for "the top customer". (b) Group by the entity's
+primary key and select the display name. (c) Filter the junk rows out.
+
+**Choice.** (b), as an explicit constraint handed to NL-to-SQL rather than left to the
+model's instincts. Not (c): the brief says do not modify the database, and silently
+excluding $9.75M of orders from a revenue total would be a much worse defect than naming
+a strange customer. They are real rows in the fact table and they belong in aggregates.
+
+**Reason.** (b) matches the gold convention, is right in general (identity is the key,
+not the label), and is the reading under which "top customer" means one customer. It is
+also the difference between a confidently wrong top-1 and a correct one on any hidden
+all-time or 2016 customer ranking — note the wrong answer is not a near miss, it is a
+different entity with a 58% larger figure.
+
+**Revisit.** If a hidden question asks for a rollup *by* company name, or by country, the
+duplicate label and the blank country become the answer's problem rather than the SQL's,
+and it should carry an assumption naming them. I would also flag these rows to whoever
+owns the fixture: two test accounts with $9.75M of orders will distort any customer-level
+benchmark built on this database.
+
+---
+
+## 2026-09-08 — Smaller database findings, recorded because they close off guesses
+
+**Observation / choice, in brief.**
+
+* **Two tables are empty.** `CustomerDemographics` and `CustomerCustomerDemo` have 0 rows.
+  A question routed through them returns no rows, which my validator treats as "empty
+  result where rows were expected" and sends to repair and then to the review gate. That
+  is the right outcome, but it must not be mistaken for a SQL bug.
+* **Referential integrity is clean**, which removes a trap I had budgeted for: 0 orphan
+  `Order Details`, 0 orders without line items, 0 unknown products, 0 unknown customers,
+  and **no NULLs** in `Orders.CustomerID`, `EmployeeID`, `ShipVia` or `Freight`. So
+  `JOIN` and `LEFT JOIN` give identical counts here and the classic Northwind
+  NULL-`CustomerID` hazard does not apply. The one exception is
+  **`ShippedDate`: 21 NULLs, all in 2018** — a genuine NULL-handling case for an
+  "unshipped orders" question, and the basis of one of my added examples.
+* **`Products.Discontinued` is `TEXT` holding `'0'`/`'1'`** (69/8), which is why the
+  provided gold writes `WHERE Discontinued='1'`. I expected the integer comparison to
+  fail; it does not. SQLite's TEXT affinity converts the numeric operand, so `='1'` and
+  `=1` both return 8. Worth having checked rather than assumed, and worth *not* writing a
+  DECISIONS entry claiming a trap that is not there.
+* **`Discount` is well-formed**: range 0.0–0.25, no negatives, none above 1, no zero
+  `UnitPrice`, no non-positive `Quantity`. But the distinct values are
+  `[0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.1, 0.15, 0.2, 0.25]` — classic Northwind
+  only uses multiples of 0.05, so the 0.01–0.06 values are another synthetic-data
+  fingerprint. No cleaning needed; the KPI formula applies as written.
+* **Category names are exactly the eight in `catalog.md`**, so the document's category
+  list is trustworthy and `Grains/Cereals` really does contain a slash that needs quoting
+  care in prose but not in SQL.
+* **The `Pantry` reporting group is measurable**: Grains/Cereals 1,412,853 +
+  Produce 1,010,224 = **2,423,077** units. Grouping by category returns 8 rows; by
+  reporting group, 7. That difference is the test of whether the rule was applied.
+* **No duplicate `ProductName`, no duplicate `Employees.LastName`** — so
+  `train_top_employee_orders` returning a bare last name is unambiguous, and product-level
+  rankings do not need a tie-break on name. `Customers.CompanyName` is the only duplicated
+  label, covered above.
+* **Ties exist in product counts per category**: Confections 13, then Seafood /
+  Condiments / Beverages all at 12. "Which category has the most products" is unique, but
+  any cut at 12 is a three-way tie — the basis of my tie-handling added example, since an
+  unstable `LIMIT 1` there is exactly the kind of nondeterminism the determinism gate
+  punishes.

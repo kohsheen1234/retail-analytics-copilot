@@ -20,10 +20,14 @@ TRACES_DIR = ROOT / "traces"
 
 DB_PATH = Path(os.environ.get("NORTHWIND_DB", DATA_DIR / "northwind.sqlite"))
 
-# Published in the assessment, so it can live in the repo. The brief warns that the
-# Northwind build circulating online under the same name is a different file whose
-# numbers will not match, so the checksum is worth asserting rather than assuming.
-DB_SHA256 = "2f4f5c68dfcd33ba27373eae48c7a4869800c68095ee0f9f0da494f83382a877"
+# Two checksums, because they disagree. See DECISIONS.md 2026-09-08.
+#   PUBLISHED: the value printed in the assessment.
+#   OBSERVED:  the file actually delivered, which reproduces all 23 provided gold
+#              answers exactly (floats to 2dp on ~4.5e8 magnitudes). That is far
+#              stronger evidence of identity than a hash, so the file is used and the
+#              published checksum is treated as the thing that is wrong.
+DB_SHA256_PUBLISHED = "2f4f5c68dfcd33ba27373eae48c7a4869800c68095ee0f9f0da494f83382a877"
+DB_SHA256_OBSERVED = "fb24a4f796eb43fab8af439fd8ea73f79859a40eeaf6f024efd485cae75a3dd5"
 
 BEST_ARTIFACT = ARTIFACTS_DIR / "best.json"
 SELECTION_FILE = ARTIFACTS_DIR / "selection.json"
