@@ -1,0 +1,31 @@
+{
+  "config": "bootstrap",
+  "seed": 1,
+  "dev_score": 0.4,
+  "dev_correct": 6,
+  "dev_total": 15,
+  "lm_calls": 22,
+  "cache_hits": 0,
+  "billable_lm_calls": 22,
+  "wall_seconds": 217.2,
+  "max_demos": 2,
+  "train_size": 20,
+  "demos": [
+    {
+      "predictor": "generate",
+      "index": 0,
+      "augmented": true,
+      "question": "Total revenue from the 'Condiments' category during 'Summer Beverages 2017' as defined in the marketing calendar. Return a float rounded to 2 decimals.",
+      "sql": "SELECT ROUND(SUM(od.UnitPrice * od.Quantity * (1 - IFNULL(od.Discount, 0))), 2) AS TotalRevenue FROM Orders o JOIN \"Order Details\" od ON o.OrderID = od.OrderID JOIN Products p ON od.ProductID = p.ProductID JOIN Categories c ON p.CategoryID = c.CategoryID WHERE date(o.OrderDate) BETWEEN '2017-06-01' AND '2017-06-30' AND c.CategoryName = 'Condiments'"
+    },
+    {
+      "predictor": "generate",
+      "index": 1,
+      "augmented": true,
+      "question": "How many orders are in the database in total? Return an integer.",
+      "sql": "SELECT COUNT(*) FROM Orders;"
+    }
+  ],
+  "model": "phi3.5:3.8b-mini-instruct-q4_K_M",
+  "num_ctx": 4096
+}
