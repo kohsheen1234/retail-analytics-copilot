@@ -1,0 +1,31 @@
+{
+  "config": "control_handpicked",
+  "seed": 0,
+  "dev_score": 0.5333,
+  "dev_correct": 8,
+  "dev_total": 15,
+  "lm_calls": 22,
+  "cache_hits": 0,
+  "billable_lm_calls": 22,
+  "wall_seconds": 416.1,
+  "max_demos": 2,
+  "train_size": 20,
+  "demos": [
+    {
+      "predictor": "generate",
+      "index": 0,
+      "augmented": false,
+      "question": "How many orders placed in 2018 have no shipped date recorded? Return an integer.",
+      "sql": "SELECT COUNT(*) FROM Orders o WHERE o.ShippedDate IS NULL AND date(o.OrderDate) BETWEEN '2018-01-01' AND '2018-12-31'"
+    },
+    {
+      "predictor": "generate",
+      "index": 1,
+      "augmented": false,
+      "question": "Which supplier generated the highest revenue in 2017? Return {supplier:str, revenue:float}.",
+      "sql": "SELECT s.CompanyName, ROUND(SUM(od.UnitPrice*od.Quantity*(1-od.Discount)),2) r FROM \"Order Details\" od JOIN Orders o ON o.OrderID=od.OrderID JOIN Products p ON p.ProductID=od.ProductID JOIN Suppliers s ON s.SupplierID=p.SupplierID WHERE date(o.OrderDate) BETWEEN '2017-01-01' AND '2017-12-31' GROUP BY s.SupplierID ORDER BY r DESC LIMIT 1"
+    }
+  ],
+  "model": "phi3.5:3.8b-mini-instruct-q4_K_M",
+  "num_ctx": 4096
+}

@@ -11,34 +11,54 @@ Ollama at `num_ctx=4096`, `num_predict=512`, `temperature=0`.
 
 ## Graph design
 
-* **Route → retrieve → plan → gate.** Routing is deterministic (`agent/modules.rule_route`)
-  after measurement: the LM classifier cost 22s per question and mislabelled a pure policy
-  lookup as `hybrid`, sending it down the SQL path and escalating a question whose answer
-  sits in `product_policy::chunk1`. Rules score 0.971 against the provided labels at ~0ms.
-  Retrieval is BM25 top-k plus two targeted expansion passes — one so both sides of a
-  document conflict reach the planner, one so a chunk *defining* a term the question uses
-  is never crowded out of top-k. Planning is rule-based: date windows, KPI formulas,
-  reporting groups and policy ranges are parsed exactly and handed to NL-to-SQL as
-  constraints, because a 3.8B model asked to read a date out of a document fails silently
-  with a plausible number. The **gate** escalates *before* spending LM calls on anything
-  SQL cannot fix.
-* **NL-to-SQL → static check → execute.** One DSPy predictor (the optimization target).
-  Generated SQL is checked against the live PRAGMA schema before execution: alias scope and
-  column existence, catching 5/5 of the invented identifiers the model actually produced
-  with 0 false positives on all 33 gold statements. A precise message ("column
-  `Discontins` does not exist on Products; Products has: …") converts a wasted 20s
-  generation into a targeted correction.
-* **Synthesize → validate → repair (≤2) → finish, or review.** The LM never constructs
-  the answer. `final_answer`, `citations` and `confidence` are computed in code from the
-  executed rows — those five fields are compared across two fresh runs, while
-  `explanation` wording is explicitly exempt, which is the spec telling you where model
-  text is safe. Validation enforces the type, exact table-citation coverage, chunk
-  citations that both exist *and* were seen, and rows behind a numeric answer; each
-  failure feeds the repair loop, and exhausting it escalates.
-* **Trace.** Every node writes a `TraceEvent` to `traces/<id>.jsonl` with inputs, outputs
-  and elapsed ms, including each repair attempt and which artifact answered the question.
+```mermaid
+graph TD
+    Start([question]) --> Route["route<br/><i>deterministic rules, ~0ms</i>"]
+    Route --> Retrieve["retrieve<br/>BM25 top-k → conflict expansion → definition expansion<br/><i>+ injection quarantine</i>"]
+    Retrieve --> Plan["plan<br/>date windows · KPI formulas · reporting groups · policy ranges<br/><i>conflicts surfaced, never silently resolved</i>"]
+    Plan --> Gate{"gate<br/><i>answerable at all?</i>"}
 
----
+    Gate -->|"unresolved conflict, or a formula<br/>needing a column that does not exist"| Review
+    Gate -->|"route = rag"| Doc["rag_answer<br/><i>DSPy · extracts from fenced untrusted text</i>"]
+    Gate -->|"route = sql / hybrid"| NL2SQL["nl2sql<br/><i>DSPy Predict · the optimized module</i>"]
+
+    Doc -->|"INSUFFICIENT"| Review
+    Doc --> Validate
+
+    NL2SQL --> Static{"static schema check<br/><i>alias scope · column exists</i>"}
+    Static -->|"provably broken,<br/>repairs remaining"| Repair
+    Static -->|"looks runnable"| Execute["execute<br/><i>read-only URI · PRAGMA query_only · row limit · timeout</i>"]
+
+    Execute --> Synth["synthesize<br/>typed answer · citations · confidence<br/><i>computed in code from the executed rows</i>"]
+    Synth --> Validate{"validate<br/>type matches format_hint · table citations exactly cover the SQL<br/>chunks exist and were seen · rows back a numeric answer"}
+
+    Validate -->|"pass"| Finish["finish<br/><i>deterministic explanation + confidence rubric</i>"]
+    Validate -->|"fail, repairs &lt; 2"| Repair["repair<br/><i>feeds back the specific failure</i>"]
+    Validate -->|"repairs = 2"| Review["review<br/><i>needs_review + packet</i>"]
+
+    Repair --> NL2SQL
+    Finish --> Answered([answered])
+    Review --> Escalated([needs_review])
+```
+
+Four things in this graph that a generic RAG-plus-SQL diagram would not have, each for a
+reason I measured:
+
+* **Every question passes through retrieval and planning, including pure `sql` ones.**
+  Short-circuiting `sql` straight to generation looks like an optimisation and is a bug:
+  "Total revenue …" has no Revenue column, so it needs `kpi_definitions::chunk3`'s formula.
+  Skipping retrieval there produced 611679.25 against a gold of 611562.68 — the discount
+  silently dropped.
+* **A gate that escalates before any LM call.** An unresolved document conflict or a
+  formula needing a column the database lacks cannot be fixed by better SQL, so discovering
+  it after three generations wastes ~60s and two repair slots.
+* **A static schema check between generation and execution.** Alias scope and column
+  existence are decidable from PRAGMA, so `no such column: o.Discount` becomes a precise
+  message rather than a wasted execution. It catches 5/5 of the broken statements the model
+  actually produced, with 0 false positives on all 33 gold statements.
+* **Repair returns only to `nl2sql`, never to synthesis.** Synthesis is deterministic code,
+  so a format failure means the *rows* are the wrong shape — which needs different SQL, not
+  a re-render. Repair is capped at 2 and every attempt appears in the trace.
 
 ## How to run
 
