@@ -154,7 +154,7 @@ only place model text is safe.
 | `scripts/evaluate.py` | Component ablations (no LM, runs in seconds) |
 | `scripts/select_artifact.py` | Which artifact ships, and why |
 | `scripts/check_determinism.py` | Runs the CLI twice cold and diffs the gated fields |
-| `DECISIONS.md` | Dated log of what was found in the data and what was decided |
+| `DECISIONS.md` | Working log of what was found in the data and what was decided, in the order found |
 | `AI_USAGE.md` | AI tool usage, with concrete rejections and corrections |
 
 ---

@@ -1,11 +1,11 @@
 # Decisions
 
-Running log. Newest at the bottom. Format is loose on purpose: some of these are one-line
-findings, some needed a real argument.
+Running log, in the order things were found. Format is loose on purpose: some of these are
+one-line findings, some needed a real argument.
 
 ---
 
-## 7 Sep
+## Reading the pack, before the database arrived
 
 ### Python 3.12, not 3.11
 
@@ -152,7 +152,7 @@ Not editing provided data. The loader infers `ordered` from a top-level ORDER BY
 field is absent; an explicit field always wins. That can only make the metric stricter,
 which is the safe direction. `--ordered-mode literal` restores the strict reading.
 
-*(8 Sep: the corrected brief says the field should be there. It isn't in the files I have,
+*(Later: the corrected brief says the field should be there. It isn't in the files I have,
 so the inference stays as a compatibility path. It goes inert once specified data arrives.)*
 
 ### `route` labels are inconsistent
@@ -223,7 +223,7 @@ when the data doesn't exercise the shape.
 
 ---
 
-## 8 Sep
+## With the database in hand
 
 ### Corrected brief
 
@@ -348,6 +348,10 @@ distort any customer-level benchmark built on it.
   for the tie-handling example, since an unstable LIMIT 1 there is the kind of
   nondeterminism the gate punishes.
 
+---
+
+## Building the graph, and what running it exposed
+
 ### Router: inverted after measuring it
 
 Built the conventional thing first - LM classifier, rule fallback. First end-to-end run:
@@ -423,6 +427,10 @@ verbatim in the rendered prompt - rather than the score.
 Also let me set MAX_DEMOS by measurement instead of feel. Prompt + 512 reserved output:
 k=1 → 2391, k=2 → 3215 (881 headroom), k=3 → 3947 (149 headroom, which a longer question
 would exhaust).
+
+---
+
+## Second pass on the optimizer
 
 ### 0.167 isn't good enough
 
