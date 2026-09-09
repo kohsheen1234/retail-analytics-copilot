@@ -101,3 +101,38 @@ def all_columns(db_path: str | None = None) -> set[str]:
     from agent import config
     schema = SQLiteTool(str(db_path or config.DB_PATH)).schema()
     return {c["name"] for cols in schema.values() for c in cols}
+
+
+def column_owners(db_path: str | None = None) -> dict[str, list[str]]:
+    """column name -> tables that have it. Derived from PRAGMA, never hardcoded."""
+    from agent import config
+    schema = SQLiteTool(str(db_path or config.DB_PATH)).schema()
+    out: dict[str, list[str]] = {}
+    for table, cols in schema.items():
+        for c in cols:
+            out.setdefault(c["name"], []).append(table)
+    return out
+
+
+def resolve_columns(identifiers: list[str], db_path: str | None = None) -> list[str]:
+    """Lines saying which table owns each identifier, for identifiers we can resolve.
+
+    Added after measuring the dominant NL-to-SQL failure: 5 of 12 dev failures were
+    `no such column: o.Discount`. `Discount` exists on exactly one table, so the model was
+    not inventing a column - it was attaching a real column to the wrong alias, which is a
+    resolvable fact rather than a reasoning problem. `UnitPrice` genuinely lives on two
+    tables, and the KPI docs say which one revenue uses, so that ambiguity is called out
+    explicitly rather than left to the model.
+    """
+    owners = column_owners(db_path)
+    lines: list[str] = []
+    for name in identifiers:
+        tables = owners.get(name)
+        if not tables:
+            continue
+        if len(tables) == 1:
+            lines.append(f"{name} is a column of {quote(tables[0])} only")
+        else:
+            lines.append(f"{name} exists on {', '.join(quote(t) for t in tables)} "
+                         f"- qualify it explicitly")
+    return lines

@@ -1,13 +1,13 @@
 {
   "config": "control",
   "seed": 0,
-  "dev_score": 0.2,
-  "dev_correct": 3,
+  "dev_score": 0.3333,
+  "dev_correct": 5,
   "dev_total": 15,
-  "lm_calls": 15,
+  "lm_calls": 17,
   "cache_hits": 0,
-  "billable_lm_calls": 15,
-  "wall_seconds": 250.9,
+  "billable_lm_calls": 17,
+  "wall_seconds": 214.5,
   "max_demos": 2,
   "train_size": 20,
   "demos": [

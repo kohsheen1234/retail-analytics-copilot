@@ -64,6 +64,43 @@ def make_control(train, seed):
     return LabeledFewShot(k=MAX_DEMOS).compile(build_module(), trainset=train)
 
 
+# Hand-picked demos, which the assessment allows for the control ("LabeledFewShot or
+# hand-picked demos, k of your choice"). Chosen from the measured failure distribution of
+# the random-sampled control, not by taste:
+#
+#   7 of 12 failures  wrong alias / column on the wrong table (mostly `o.Discount`)
+#   3 of 12           corrupted keyword tokens
+#   1 of 12           a spurious date filter on a query that needs no Orders join
+#
+# LabeledFewShot's random sample had drawn `train_discontinued_products`
+# (`SELECT COUNT(*) FROM Products WHERE Discontinued='1'`) - one table, no join, no alias -
+# which demonstrates nothing about the thing the model keeps getting wrong.
+HANDPICKED = [
+    # 4-way join: alias discipline, (1 - Discount) on the line item, date() window,
+    # GROUP BY the id while selecting the label, ORDER BY ... LIMIT.
+    "train_top_supplier_revenue_2017",
+    # Deliberately the opposite shape: a single table, no join, a NULL predicate and a
+    # date() window. Counterweight to the first demo, so the model does not learn that
+    # every question needs a four-table join - which is how `dev_products_in_beverages`
+    # acquired a spurious OrderDate filter.
+    "train_added_null_unshipped_orders_2018",
+]
+
+
+def make_control_handpicked(train, seed):
+    """Control variant with demos chosen against the observed failure modes.
+
+    Seed-independent by construction: the demos are fixed, so both seeds produce the same
+    artifact and the spread is 0 by definition rather than by luck. Reported as such.
+    """
+    from dspy.teleprompt import LabeledFewShot
+    chosen = [ex for name in HANDPICKED for ex in train if ex.id == name]
+    missing = set(HANDPICKED) - {ex.id for ex in chosen}
+    if missing:
+        raise SystemExit(f"hand-picked demos not found in train: {sorted(missing)}")
+    return LabeledFewShot(k=len(chosen)).compile(build_module(), trainset=chosen)
+
+
 def make_bootstrap(train, seed):
     """BootstrapFewShot: the teacher writes candidate SQL, the metric filters it.
 
@@ -127,6 +164,7 @@ def make_bootstrap_rs(train, seed):
 CONFIGS = {
     "baseline": make_baseline,
     "control": make_control,
+    "control_handpicked": make_control_handpicked,
     "bootstrap": make_bootstrap,
     "bootstrap_rs": make_bootstrap_rs,
 }

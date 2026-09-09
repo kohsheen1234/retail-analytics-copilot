@@ -26,6 +26,64 @@ import dspy
 
 from agent.signatures import ExplainAnswer, ExtractFromDocs, GenerateSQL, RouteQuestion
 
+# SQLite keywords and functions the model actually uses here. Used only to repair
+# corrupted tokens, never to validate: the execution boundary remains the only authority
+# on what is safe to run.
+_SQL_VOCAB = (
+    "select", "from", "where", "group", "order", "having", "limit", "offset", "join",
+    "inner", "left", "right", "full", "outer", "cross", "natural", "using", "distinct",
+    "between", "and", "or", "not", "null", "like", "in", "exists", "case", "when",
+    "then", "else", "end", "as", "on", "asc", "desc", "union", "intersect", "except",
+    "with", "recursive", "count", "sum", "avg", "min", "max", "round", "abs", "cast",
+    "coalesce", "ifnull", "nullif", "substr", "length", "lower", "upper", "trim",
+    "replace", "date", "datetime", "julianday", "strftime", "printf", "total",
+)
+_MIN_PREFIX = 4          # how much of the keyword must be correct before we trust a repair
+_MIN_TOKEN = 5           # never touch short tokens; they are aliases
+
+
+def repair_corrupted_keywords(sql: str, known_names: set[str] | None = None) -> tuple[str, list[str]]:
+    """Repair keyword tokens the model corrupted mid-word.
+
+    phi3.5 at q4 degenerates inside a token while keeping the prefix intact: observed
+    `BETWEEN` -> `BETWEWEN` and `BETWEDIR`, `strftime` -> `strftDIR`. Three of twelve dev
+    failures were exactly this, and no amount of prompting fixes a decoding artefact.
+
+    Deliberately narrow, because a loose fuzzy-match here would silently rewrite a real
+    identifier into a different valid query - a far worse failure than the one being
+    fixed. A token is only repaired when ALL of the following hold:
+
+      * it is at least 5 characters and purely alphabetic (aliases are shorter);
+      * it is not a known table or column name in the live schema;
+      * it is not already valid SQL vocabulary;
+      * it shares a prefix of >= 4 characters with exactly one keyword.
+
+    The prefix rule is what makes this safe: it targets the observed corruption shape
+    (correct prefix, garbage tail) rather than general similarity. Every substitution is
+    returned so the trace can show it.
+    """
+    known = {n.lower() for n in (known_names or set())}
+    fixes: list[str] = []
+
+    def fix(match: re.Match[str]) -> str:
+        tok = match.group(0)
+        low = tok.lower()
+        if len(tok) < _MIN_TOKEN or low in _SQL_VOCAB or low in known:
+            return tok
+        candidates = [kw for kw in _SQL_VOCAB
+                      if len(kw) >= _MIN_PREFIX and low[:_MIN_PREFIX] == kw[:_MIN_PREFIX]]
+        # require an unambiguous target, and require the token to be wrong-but-close
+        candidates = [kw for kw in candidates if kw != low]
+        if len(set(candidates)) != 1:
+            return tok
+        target = candidates[0]
+        fixes.append(f"{tok} -> {target.upper()}")
+        return target.upper() if tok.isupper() else target
+
+    repaired = re.sub(r"\b[A-Za-z]+\b", fix, sql)
+    return repaired, fixes
+
+
 _FENCE = re.compile(r"```(?:sql|sqlite)?\s*(.*?)\s*```", re.S | re.I)
 _LEAD_LABEL = re.compile(r"^\s*(?:sql|query|answer|output)\s*[:=]\s*", re.I)
 _SELECT_START = re.compile(r"\b(with|select)\b", re.I)
@@ -74,16 +132,28 @@ def clean_sql(raw: str | None) -> str:
 class NL2SQL(dspy.Module):
     """The module the assessment asks to optimize. One predictor, by design."""
 
-    def __init__(self):
+    def __init__(self, known_names: set[str] | None = None):
         super().__init__()
         self.generate = dspy.Predict(GenerateSQL)
+        self._known_names = known_names
+
+    def _names(self) -> set[str]:
+        """Schema identifiers, so keyword repair never rewrites a real name."""
+        if self._known_names is None:
+            try:
+                from agent.schema import all_columns, known_tables
+                self._known_names = set(known_tables()) | set(all_columns())
+            except Exception:
+                self._known_names = set()
+        return self._known_names
 
     def forward(self, question: str, format_hint: str, db_schema: str,
                 constraints: str, feedback: str = "") -> dspy.Prediction:
         out = self.generate(question=question, format_hint=format_hint, db_schema=db_schema,
                             constraints=constraints, feedback=feedback or "none")
-        return dspy.Prediction(sql=clean_sql(getattr(out, "sql", "")),
-                               raw_sql=getattr(out, "sql", ""))
+        raw = getattr(out, "sql", "")
+        sql, fixes = repair_corrupted_keywords(clean_sql(raw), self._names())
+        return dspy.Prediction(sql=sql, raw_sql=raw, keyword_fixes=fixes)
 
 
 class DocAnswer(dspy.Module):

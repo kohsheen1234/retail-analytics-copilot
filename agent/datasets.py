@@ -23,7 +23,7 @@ import dspy
 from agent import config
 from agent.planner import Plan, build_plan
 from agent.retriever import Retriever
-from agent.schema import all_columns, schema_text
+from agent.schema import all_columns, resolve_columns, schema_text
 from agent.sql_analysis import has_top_level_order_by
 
 PROVIDED_TRAIN = config.DATA_DIR / "train.jsonl"
@@ -164,15 +164,29 @@ def plan_for_question(question: str) -> tuple[Plan, list[str]]:
     return plan, [h.chunk_id for h in cleaned]
 
 
-def constraints_text(plan: Plan) -> str:
+_IDENT = re.compile(r"\b([A-Z][a-z]+(?:[A-Z][a-z]+)*)\b")
+
+
+def constraints_text(plan: Plan, route: str | None = None) -> str:
     """Compact, deterministic rendering of the plan for the NL-to-SQL prompt."""
     parts: list[str] = []
+    if route == "rag":
+        # Mirrors what the graph knows at runtime: the router never sends a rag question
+        # to NL-to-SQL. Stating it keeps the optimization inputs identical to the runtime
+        # inputs, so the abstention contract is scoreable rather than an artefact.
+        parts.append("ROUTE: rag - this question is answered from documents. Output no SQL.")
     if plan.chosen_window:
         w = plan.chosen_window
         parts.append(f"DATE WINDOW: date(OrderDate) BETWEEN '{w.start}' AND '{w.end}' "
                      f"(inclusive; from {w.source})")
+        for line in resolve_columns(["OrderDate"]):
+            parts.append(f"  COLUMN: {line}")
     for k in plan.kpi_formulas:
         parts.append(f"FORMULA {k.name} [{k.status}]: {k.expr}")
+        # Which table owns each column the formula names. This is the single highest-value
+        # line in the prompt: `no such column: o.Discount` was 5 of 12 dev failures.
+        for line in resolve_columns(sorted(set(_IDENT.findall(k.expr)))):
+            parts.append(f"  COLUMN: {line}")
     for group, members in plan.reporting_groups.items():
         joined = ", ".join(f"'{m}'" for m in members)
         parts.append(f"REPORTING GROUP '{group}' = CategoryName IN ({joined})")
@@ -193,6 +207,7 @@ def constraints_text(plan: Plan) -> str:
 
 def to_example(rec: dict) -> dspy.Example:
     plan, chunk_ids = plan_for_question(rec["question"])
+    route = rec.get("route")
     ordered = rec.get("ordered")
     if ordered is None:
         ordered = has_top_level_order_by(rec.get("gold_sql") or "")
@@ -201,7 +216,7 @@ def to_example(rec: dict) -> dspy.Example:
         question=rec["question"],
         format_hint=rec["format_hint"],
         db_schema=schema_text(),
-        constraints=constraints_text(plan),
+        constraints=constraints_text(plan, route),
         # `feedback` is an input field on GenerateSQL, and `sql` is its OUTPUT field.
         # Both must be present or DSPy silently drops the example as a demonstration:
         # the chat adapter renders a demo only when it can fill every input and every
