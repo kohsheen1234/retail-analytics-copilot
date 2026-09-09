@@ -7,57 +7,22 @@ findings, some needed a real argument.
 
 ## 7 Sep
 
-### Pack inventory
+### Python 3.12, not 3.11
 
-starter/ + docs/ (5 files) + train.jsonl (15) + dev.jsonl (10) + eval file (6). No
-database - that comes from a URL in the invitation. starter/agent/ is empty, so the graph
-is all mine.
-
-Decided to build everything that doesn't depend on row values first (contracts, chunker
-wiring, retriever, planner, validator, trace, graph topology) and defer gold-SQL authoring
-and the metric runs. Blocking on a download would waste the budget.
-
-### The pinned lock doesn't install on the pinned Python
-
-ENVIRONMENT.md says Python 3.11.x, Dockerfile is `python:3.11-slim`. But:
+ENVIRONMENT.md pins Python 3.11.x and the Dockerfile is `python:3.11-slim`, but:
 
 ```
 $ uv pip compile requirements.txt --python-version 3.11
   Because numpy==2.5.2 depends on Python>=3.12 ... requirements are unsatisfiable
 ```
 
-Resolves fine on 3.12/3.13/3.14. So the two pins contradict each other and the shipped
-Dockerfile can't build.
+The two pins contradict each other and the shipped Dockerfile can't build. Kept
+requirements.txt byte-identical and moved to 3.12 - the package pins are what's graded,
+and the Python line is the one that's provably wrong. Dockerfile base bumped to
+3.12-slim.
 
-Options were: relax numpy/pandas and stay on 3.11, or keep requirements.txt byte-identical
-and move to 3.12. Went with 3.12. The package pins are what's graded (dspy 3.3.1 behaviour
-is directly examined); the Python line is a description of their machine and it's the pin
-that's provably wrong. Bumped the Dockerfile base to 3.12-slim so the image actually
-builds.
-
-Worth raising with them. If their reference machine really is 3.11, they cannot have
-installed this lock file either.
-
-### ENVIRONMENT.md is half-empty
-
-CPU, OS, threads, Ollama version, **model digest** and all three reference timings are
-still `<fill>`. Only num_ctx 4096, num_predict 512, temperature 0, top_p 1.0, top_k 0, seed
-and "RAM: 16 GB" are actually specified.
-
-Can't assert I used the reference digest because it was never stated. Recording mine in
-`artifacts/environment_actual.json` instead so any mismatch is visible rather than silent.
-
-### Public or private repo?
-
-The pack's ASSESSMENT.md says public. The first brief I was handed (also labelled v2.1)
-says private and "do not publish". Went private and asked, on the grounds that publishing
-is a one-way door and staying private is one command to undo.
-
-*(8 Sep: corrected brief settled it as public. Switched. The conservative default cost one
-`gh` call.)*
-
-Both versions agree ASSESSMENT.md and the PDF are never committed, so those are gitignored
-along with candidate_pack/.
+Worth raising with them: if their reference machine really is 3.11, they can't have
+installed this lock either.
 
 ### Chunk map
 
