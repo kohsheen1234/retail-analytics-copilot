@@ -223,8 +223,9 @@ budget.
 
 ### 2. What changed
 
-`artifacts/best.json`: two demos, no instruction text stored, so nothing to quote. Each
-demo's SQL re-executed against its own gold:
+`artifacts/best.json`: two demos. Stored `signature.instructions` is byte-identical to the
+`GenerateSQL` docstring - `LabeledFewShot` never rewrites instructions - so no instruction
+text changed. Each demo's SQL re-executed against its own gold:
 
 | # | augmented | Demo | SQL correct? |
 |---|---|---|---|
@@ -256,7 +257,7 @@ demos pushed output toward multi-table joins and this two-table count degraded â
 of targeting the dominant failure mode.
 
 Against the random control it is +4/âˆ’1, two of them `rows differ` rather than crashes:
-semantic fixes from the column-ownership constraints. **Five never pass anywhere**, three
+semantic fixes from the column-ownership constraints. **Four never pass anywhere**, three
 being deliberately hard added examples. They mark the model's ceiling, not the harness's.
 
 ### 4. Generalization

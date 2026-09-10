@@ -1,10 +1,5 @@
 # Decisions
 
-Running log, in the order things were found. Format is loose on purpose: some of these are
-one-line findings, some needed a real argument.
-
----
-
 ## Reading the pack, before the database arrived
 
 ### Python 3.12, not 3.11
@@ -21,21 +16,21 @@ requirements.txt byte-identical and moved to 3.12 - the package pins are what's 
 and the Python line is the one that's provably wrong. Dockerfile base bumped to
 3.12-slim.
 
-Worth raising with them: if their reference machine really is 3.11, they can't have
-installed this lock either.
+If the reference machine really is 3.11, this lock
+can't have been installed there either.
 
 ### The five documents
 
 Read all five before writing anything. They are small - 2,092 bytes total - and every
 trap in this task lives in them.
 
-| file | bytes | chunks | what it holds |
-|---|---|---|---|
-| `campaign_memo.md` | 315 | 1 | extends Summer Beverages to 2017-07-07, claims precedence |
-| `catalog.md` | 382 | 2 | 8 categories; the "Pantry" reporting group |
-| `kpi_definitions.md` | 741 | 4 | AOV current + legacy, Gross Margin, Revenue |
-| `marketing_calendar.md` | 267 | 3 | Summer Beverages 06-01..06-30, Winter Classics 12-01..12-31 |
-| `product_policy.md` | 387 | 3 | return windows, and the injection |
+| file                    | bytes | chunks | what it holds                                               |
+| ----------------------- | ----- | ------ | ----------------------------------------------------------- |
+| `campaign_memo.md`      | 315   | 1      | extends Summer Beverages to 2017-07-07, claims precedence   |
+| `catalog.md`            | 382   | 2      | 8 categories; the "Pantry" reporting group                  |
+| `kpi_definitions.md`    | 741   | 4      | AOV current + legacy, Gross Margin, Revenue                 |
+| `marketing_calendar.md` | 267   | 3      | Summer Beverages 06-01..06-30, Winter Classics 12-01..12-31 |
+| `product_policy.md`     | 387   | 3      | return windows, and the injection                           |
 
 Committed unchanged; `artifacts/corpus_manifest.json` pins the sha256 of each and a test
 asserts them, so "did not edit the documents" is checkable rather than asserted.
@@ -61,7 +56,7 @@ marketing_calendar::chunk1: Summer Beverages 2017 = 06-01 to 06-30.
 campaign_memo::chunk0 (issued 06-28): extended by a week, revised end 07-07, "the marketing
 calendar has not yet been updated", and "this memo takes precedence".
 
-So the corpus contains a conflict *and* its own resolution rule. But four of the provided
+So the corpus contains a conflict _and_ its own resolution rule. But four of the provided
 questions say "as defined in the marketing calendar", and their gold SQL uses 06-30. The
 memo is deliberately not applied there.
 
@@ -81,7 +76,7 @@ truth is 14.
 
 Second edge worth noting: `train_policy_nonperishable_days` golds **30**, which is also
 what the injection says. So "did it output 30" tests nothing. The behavioural test has to
-check non-perishables → 30 *and* unopened Beverages → 14.
+check non-perishables → 30 _and_ unopened Beverages → 14.
 
 Quarantining rather than deleting. Deleting makes the corpus look clean and destroys the
 audit trail; the trace should show what the corpus tried to do. Retrieved text also gets
@@ -124,21 +119,21 @@ added examples covers it.
 
 24.7 MB, 13 tables, 625,890 rows. Surveyed before writing any SQL:
 
-| table | rows | cols |
-|---|---|---|
-| `Order Details` | 609,283 | 5 |
-| `Orders` | 16,282 | 14 |
-| `Customers` | 93 | 11 |
-| `Products` | 77 | 10 |
-| `Territories` | 53 | 3 |
-| `EmployeeTerritories` | 49 | 2 |
-| `Suppliers` | 29 | 12 |
-| `Employees` | 9 | 18 |
-| `Categories` | 8 | 4 |
-| `Regions` | 4 | 2 |
-| `Shippers` | 3 | 3 |
-| `CustomerDemographics` | **0** | 2 |
-| `CustomerCustomerDemo` | **0** | 2 |
+| table                  | rows    | cols |
+| ---------------------- | ------- | ---- |
+| `Order Details`        | 609,283 | 5    |
+| `Orders`               | 16,282  | 14   |
+| `Customers`            | 93      | 11   |
+| `Products`             | 77      | 10   |
+| `Territories`          | 53      | 3    |
+| `EmployeeTerritories`  | 49      | 2    |
+| `Suppliers`            | 29      | 12   |
+| `Employees`            | 9       | 18   |
+| `Categories`           | 8       | 4    |
+| `Regions`              | 4       | 2    |
+| `Shippers`             | 3       | 3    |
+| `CustomerDemographics` | **0**   | 2    |
+| `CustomerCustomerDemo` | **0**   | 2    |
 
 `OrderDate` spans 2012-07-10 to 2023-10-28. Two tables are empty, so any question routed
 through them returns nothing - a correct result that looks like a bug.
@@ -154,7 +149,7 @@ From the gold answers alone, before seeing the file: 16,282 orders (classic has 
 revenue ~448M, windows spanning 2016-2023. Classic dimension tables, inflated fact table.
 
 Everything comes from PRAGMA at runtime. Any Northwind constant I might remember is wrong
-here, and `train_discontinued_products` uses `WHERE Discontinued='1'` - a *string* - which
+here, and `train_discontinued_products` uses `WHERE Discontinued='1'` - a _string_ - which
 hints the column is TEXT.
 
 ### The starter's own test is a spec
@@ -173,7 +168,7 @@ triggers a repair. Belt and braces is proportionate because nearly every questio
 date-windowed and a silent undercount is indistinguishable from a correct answer.
 
 Still unverified: `date()` returns NULL on anything it can't parse, so a third format would
-make rows vanish from *both* sides of that test while it still passes. Need the histogram.
+make rows vanish from _both_ sides of that test while it still passes. Need the histogram.
 
 ### Two soft spots in sqlite_tool.py
 
@@ -185,7 +180,7 @@ it. Documenting rather than patching a security boundary to buy a string functio
 
 `tables_used()` can't be used for citations. It substring-matches known table names, so it
 can't tell a CTE from a physical table, and it matches a table name used as a column alias.
-Validation requires *exact* coverage, so that's a direct route to a scored defect. Writing
+Validation requires _exact_ coverage, so that's a direct route to a scored defect. Writing
 my own extractor.
 
 ### The `ordered` flag doesn't exist
@@ -202,8 +197,8 @@ Not editing provided data. The loader infers `ordered` from a top-level ORDER BY
 field is absent; an explicit field always wins. That can only make the metric stricter,
 which is the safe direction. `--ordered-mode literal` restores the strict reading.
 
-*(Later: the corrected brief says the field should be there. It isn't in the files I have,
-so the inference stays as a compatibility path. It goes inert once specified data arrives.)*
+_(Later: the corrected brief says the field should be there. It isn't in the files I have,
+so the inference stays as a compatibility path. It goes inert once specified data arrives.)_
 
 ### `route` labels are inconsistent
 
@@ -251,7 +246,7 @@ is the wrong order, and its failure mode is a plausible wrong number rather than
 So: rules parse date windows, formulas, reporting groups and policy ranges; anything the
 rules don't recognise is still forwarded as prose so it's degraded rather than lost.
 
-This also makes conflicts *representable*. `Plan.conflicts` holds every competing value
+This also makes conflicts _representable_. `Plan.conflicts` holds every competing value
 with its chunk id and `resolution` is only set when a real precedence rule exists. An LM
 planner would tend to pick one and narrate a justification, which is exactly the "silently
 resolved" failure the spec calls out.
@@ -286,7 +281,7 @@ skeleton exactly, and requirements.txt is still byte-identical.
 ### The database checksum doesn't match
 
 Delivered file hashes `fb24a4f7...`; the brief publishes `2f4f5c68...`. And the brief is
-emphatic that a *different* Northwind circulates under the same filename and its numbers
+emphatic that a _different_ Northwind circulates under the same filename and its numbers
 won't match.
 
 A hash can't tell me which of us is wrong, so I used the gold data. Ran all 23 provided
@@ -326,7 +321,7 @@ So the checksum never matched and never could have. There was nothing to check i
 until the revision, and by then the brief had stopped shipping the URL without starting to
 ship the file.
 
-What rules out a *data* difference: `train.jsonl` (`e4be4754`) and `dev.jsonl` (`5f5af20d`)
+What rules out a _data_ difference: `train.jsonl` (`e4be4754`) and `dev.jsonl` (`5f5af20d`)
 are byte-identical between the original pack and now, as are all five docs and `chunker.py`.
 The gold answers never changed across the revision. So whatever build they hold has to
 reproduce these same 23 answers - and mine does, 23/23. The two files are data-equivalent
@@ -344,10 +339,10 @@ rather have it in hand before the live session than discover it on the hidden se
 
 ### OrderDate: resolved
 
-| storage | rows | range | OrderID |
-|---|---|---|---|
+| storage               | rows   | range                    | OrderID     |
+| --------------------- | ------ | ------------------------ | ----------- |
 | `YYYY-MM-DD HH:MM:SS` | 15,452 | 2012-07-10 .. 2023-10-28 | 11078-26529 |
-| `YYYY-MM-DD` | 830 | 2016-07-04 .. 2018-05-06 | 10248-11077 |
+| `YYYY-MM-DD`          | 830    | 2016-07-04 .. 2018-05-06 | 10248-11077 |
 
 `OrderDate IS NULL`: 0. `date(OrderDate) IS NULL`: **0**. No third format, so `date()` is a
 complete fix and yesterday's worry is retired.
@@ -359,10 +354,10 @@ the seam.
 
 Cost of getting it wrong, measured:
 
-| window | bare BETWEEN | date() | dropped |
-|---|---|---|---|
-| 2017-06-01..06-30 | 131 | 134 | 3 |
-| 2018-01-01..03-31 | 501 | 505 | 4 |
+| window            | bare BETWEEN | date() | dropped |
+| ----------------- | ------------ | ------ | ------- |
+| 2017-06-01..06-30 | 131          | 134    | 3       |
+| 2018-01-01..03-31 | 501          | 505    | 4       |
 
 On `hybrid_revenue_beverages_summer_2017` that's **611562.68** correct against
 **591887.18** bare - a 3.2% undercount that looks completely plausible.
@@ -407,10 +402,10 @@ Three hazards fall out.
 nothing. Blank Country puts $9.75M in a nameless bucket in any country rollup. And because
 they share a display name, the aggregation grain decides the answer:
 
-| question | GROUP BY CustomerID | GROUP BY CompanyName |
-|---|---|---|
+| question                          | GROUP BY CustomerID         | GROUP BY CompanyName |
+| --------------------------------- | --------------------------- | -------------------- |
 | top customer by revenue, all-time | B's Beverages, 6,154,115.34 | **IT, 9,745,371.29** |
-| most orders in 2016 | **QUICK-Stop, 27** | **IT, 35** |
+| most orders in 2016               | **QUICK-Stop, 27**          | **IT, 35**           |
 
 The provided gold settles it - `train_top_customer_orders_2016` golds QUICK-Stop/27, so the
 convention is group by the id, select the label. That goes to NL-to-SQL as an explicit
@@ -481,7 +476,7 @@ has: ...". Derived-table and CTE aliases are exempted so valid SQL is never repa
 `hybrid_revenue_beverages_summer_2017` answered 611679.25 against a gold of 611562.68. Not
 a model failure - BM25 ranks the calendar and memo chunks above kpi_definitions::chunk3,
 which lands 6th and falls outside k=4. The Revenue formula never reached the planner, so
-the model summed UnitPrice*Quantity with no discount.
+the model summed UnitPrice\*Quantity with no discount.
 
 A chunk whose heading names a term the question uses is now retrieved regardless of rank.
 Raising k would have fixed this one case while spending context on 5th and 6th place for
@@ -491,7 +486,7 @@ same recall.
 ### The gate was escalating answerable questions
 
 BM25 pulled the Gross Margin chunk into "How many orders were shipped to France in 2019?",
-the planner found CostOfGoods missing, and the gate escalated a trivial COUNT(*). Under the
+the planner found CostOfGoods missing, and the gate escalated a trivial COUNT(\*). Under the
 escalation scoring that's 1.0 → 0.25, and it would have fired across the hidden set.
 
 A formula may now only constrain or block an answer if the question actually invokes it,
@@ -574,8 +569,8 @@ certified correct on its own question, and which I'd already flagged in the audi
 copied the `COUNT(DISTINCT OrderID)` divisor into a total-margin query and returned margin
 per order.
 
-So: an execution-grounded metric can only ask whether a demo is right about *its own
-question*. It can't ask what the demo *teaches*. No per-example metric catches that; only an
+So: an execution-grounded metric can only ask whether a demo is right about _its own
+question_. It can't ask what the demo _teaches_. No per-example metric catches that; only an
 end-to-end measurement does.
 
 `select_artifact.py` now gates on an end-to-end regression before ranking by dev mean, with
