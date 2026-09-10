@@ -23,6 +23,21 @@
       "mean_wall_seconds": 383.4
     },
     {
+      "config": "bootstrap_rs",
+      "seeds": [
+        0,
+        1
+      ],
+      "scores": {
+        "0": 0.4,
+        "1": 0.4
+      },
+      "mean_dev_score": 0.4,
+      "spread": 0.0,
+      "mean_lm_calls": 137.0,
+      "mean_wall_seconds": 2447.9
+    },
+    {
       "config": "bootstrap",
       "seeds": [
         0,

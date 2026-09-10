@@ -205,6 +205,8 @@ Demos come from `train` only; `assert_no_leakage()` gates `optimize.py`.
 | **control hand-picked k=2** | 1 | **0.533 (8/15)** | 22 | 0 | 350.7s |
 | `BootstrapFewShot` k=2 | 0 | 0.267 (4/15) | 17 | 0 | 318.5s |
 | `BootstrapFewShot` k=2 | 1 | 0.400 (6/15) | 22 | 0 | 217.2s |
+| `…WithRandomSearch` k=2 (O1) | 0 | 0.400 (6/15) | 135 | 0 | 2444.9s |
+| `…WithRandomSearch` k=2 (O1) | 1 | 0.400 (6/15) | 139 | 0 | 2450.8s |
 
 Pooled over both seeds (n=30), Wilson 95% intervals. One question is 6.7 points:
 
@@ -214,12 +216,15 @@ Pooled over both seeds (n=30), Wilson 95% intervals. One question is 6.7 points:
 | control (random demos) | 0.200 | **0.267** | [0.10, 0.37] |
 | **hand-picked** | **0.533** | 0.000 | [0.36, 0.70] |
 | bootstrap | 0.333 | 0.133 | [0.19, 0.51] |
+| random search (O1) | 0.400 | 0.000 | [0.25, 0.58] |
 
-Only hand-picked separates cleanly from baseline; bootstrap overlaps everything. The
+Only hand-picked separates cleanly from baseline; neither bootstrap variant does, and
+random search's [0.25, 0.58] still overlaps baseline's upper bound. The
 random control's spread of 0.267 is four questions, wider than its gap to any other
 configuration, so a single-seed control run measures the sampler, not the method.
-**Demo selection dominates optimizer choice.** Three required configs: 25.5 min, in
-budget.
+**Demo selection dominates optimizer choice.** The three required configs are 25.5 min,
+inside the 30-minute budget; O1's random search is 81.6 min on top and is not counted
+against it.
 
 ### 2. What changed
 
@@ -298,14 +303,31 @@ regressed.
 
 ## Optional tasks
 
-**O1. Advanced optimizer — attempted.** `BootstrapFewShotWithRandomSearch` reached a mean
-of 0.233 in an earlier code state, the best dev mean at the time, at 115 LM calls and 32
-minutes per seed. It was **not** shipped: running the full agent with each artifact gave
-control 6/6 against random search 4/6, and both regressions were traced to a specific
-demo whose SQL divided by `COUNT(DISTINCT o.OrderID)` and taught the model to compute
-margin per order. `num_candidate_programs=3` (library default 16) and an explicit held-out
-valset were used; both are cost and correctness disclosures, documented in `optimize.py`.
-No hosted model, larger local model or stronger teacher was used in any role.
+**O1. Advanced optimizer — attempted, not shipped.** `BootstrapFewShotWithRandomSearch`,
+two seeds on the current code with a cold cache: **0.400 on both seeds** (spread 0.000),
+135 and 139 LM calls, 40.8 min per seed. It beats plain `BootstrapFewShot` at 0.333, so
+random search does help; an earlier code state gave 0.233 and that figure is superseded.
+
+Not shipped, on three grounds. **Dev:** 0.400 against hand-picked 0.533, and head-to-head
+it is **+0/−2** — strictly dominated, with no compensating gains. **Cost:** 6.2x the LM
+calls and 6.4x the wall time. **Demos:** all four bootstrapped demos return correct rows,
+so the metric passed them and was right to, but three teach something wrong — a redundant
+`JOIN Customers` on a `COUNT(*)` over Orders alone, a `GROUP BY CategoryName` where gold
+groups by `CategoryID`, and a single-table `COUNT(*)` that demonstrates nothing about the
+alias errors which dominate the failures. Only the fourth is clean, and it is the
+un-augmented one: verbatim gold, the same demo hand-picked already uses.
+
+**Correcting an earlier claim in this file.** It previously read "control 6/6 against
+random search 4/6". Re-measured on the current code, random search is also **6/6**,
+matching the shipped answers on all six with zero repairs
+(`artifacts/e2e_eval.json`). The 4/6 was taken against a different code state. So the demo
+objection is a forward-looking risk on the hidden set, not an observed regression, and the
+honest case against shipping rests on the dev dominance and the cost.
+
+`num_candidate_programs=3` (library default 16) and an explicit 8-example held-out valset
+are cost and correctness disclosures documented in `optimize.py`. Student, teacher and
+proposal LM are all the pinned phi3.5 — no hosted model, larger local model or stronger
+teacher in any role — so this is an O1 attempt on compute, not on model strength.
 
 **O2. Second module — attempted.** The Router was optimized with `router_metric` (exact
 match over three labels, `bool`, no partial credit). Zero-shot 0.533 → `LabeledFewShot`
@@ -333,6 +355,14 @@ structured constraints, and rephrasings avoiding the trigger vocabulary.
   conservative and will not catch novel corruptions.
 - **Four dev examples pass in no configuration**, all involving reporting groups, tie
   handling or aggregation grain.
+- **The entity-grain constraint is delivered but not always obeyed.**
+  `hybrid_best_customer_margin_2017` ships `GROUP BY c.CompanyName`, not `CustomerID`,
+  even though `ENTITY GRAIN: group by the entity's id column ...` demonstrably reaches the
+  prompt for that question. The answer is right only by luck of ranking: the two test
+  accounts share `CompanyName='IT'`, and their merged 2017 margin of 229,335.10 lands
+  third, 22,512 behind Wilman Kala. Ask the same question as a top-3 and the shipped agent
+  emits `IT` as a customer. The fix is a lint on generated SQL — entity aggregation must
+  group by the id column, not the label — which is not written yet.
 - **Silent wrong answers remain possible.** One dev failure ran cleanly and returned the
   wrong rows. No static check catches that; the only defences are calibrated confidence and
   the review gate.

@@ -6,6 +6,11 @@
       "correct": 6,
       "total": 6,
       "note": "zero repairs on all six; answers verified against independently computed SQL"
+    },
+    "bootstrap_rs_seed0": {
+      "correct": 6,
+      "total": 6,
+      "note": "Re-measured on the current code by swapping this artifact in as best.json. Zero repairs; final_answer matches the shipped outputs_hybrid.jsonl on all six. Supersedes an earlier 4/6 taken against a different code state, which the README had still been citing. Random search is therefore not worse end-to-end here; the case against shipping it rests on dev dominance (+0/-2 vs hand-picked) and 6x cost."
     }
   }
 }

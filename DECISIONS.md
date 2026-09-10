@@ -578,3 +578,82 @@ the amendment written into the docstring rather than folded in silently. The ris
 there too: the eval file is visible and six questions long, so selecting on it courts
 overfitting to the visible set. Accepting it because the regressions are diagnosed, not just
 observed.
+
+---
+
+## O1 re-run, and a grain bug it exposed
+
+### Random search, measured properly this time
+
+The README had been citing 0.233 from an earlier code state, with no per-seed rows and no
+shipped artifacts, which does not satisfy what O1 actually asks for. Re-ran it: two seeds,
+current code, cold cache per run.
+
+**0.400 on both seeds**, spread 0.000, 135 and 139 LM calls, ~40.8 min per seed. So random
+search does help - it beats plain `BootstrapFewShot` at 0.333 - and the old 0.233 was
+measuring code that has since been fixed, not the method.
+
+It still loses to hand-picked 0.533, and head-to-head on dev it is **+0/-2**: strictly
+dominated, no compensating gains, at 6.2x the LM calls.
+
+### The 4/6 claim was stale, and I had to retract it
+
+The write-up justified not shipping random search by saying the full agent scored control
+6/6 against random search 4/6. Re-measured by swapping the new artifact in as `best.json`:
+random search is **6/6**, byte-identical `final_answer` to the shipped run on all six, zero
+repairs.
+
+So the strongest-sounding argument was the one that did not survive. What is left is honest
+but weaker: dev dominance plus 6x cost, and a *forward-looking* risk about what the demos
+teach rather than an observed regression. Recorded in `artifacts/e2e_eval.json` so the
+claim has a measurement behind it instead of a memory.
+
+### What the bootstrapped demos teach
+
+All four return correct rows. The metric passed them and was right to - they are correct
+about their own questions. Three still teach something wrong:
+
+| demo | correct? | teaches |
+|---|---|---|
+| redundant `JOIN Customers` on `COUNT(*)` over Orders | yes | a join that only stays harmless because 0 orphan orders |
+| `GROUP BY CategoryName` where gold groups by `CategoryID` | yes | grouping by label, which is the grain trap |
+| single-table `COUNT(*) FROM Customers WHERE Country='France'` | yes | nothing about the alias errors that dominate failures |
+| supplier revenue, un-augmented | yes | verbatim gold; the one hand-picked already uses |
+
+This is a sharper version of the point I had already made once. It is not "a loose metric
+admits wrong demos" - the metric is strict, execution-grounded, and admitted all four
+correctly. A per-example metric can only ask whether a demo is right about its own
+question. It cannot ask what the demo *teaches*. Only end-to-end measurement can.
+
+### The grain bug in the shipped agent
+
+Chasing the `GROUP BY` habit in that demo, I checked whether the shipped agent has it too.
+It does.
+
+`hybrid_best_customer_margin_2017` ships `GROUP BY c.CompanyName`. The `ENTITY GRAIN`
+constraint is in the prompt for that question - verified in the trace - and the model
+overrode it.
+
+Both test accounts carry `CompanyName='IT'`, so grouping by label merges them:
+
+| rank | GROUP BY CompanyName (ships) | GROUP BY CustomerID (documented) |
+|---|---|---|
+| 1 | Wilman Kala 251847.49 | Wilman Kala 251847.49 |
+| 2 | La corne d'abondance 235595.51 | La corne d'abondance 235595.51 |
+| 3 | **IT 229335.10** | Old World Delicatessen 210578.31 |
+
+`LIMIT 1` is the only reason the shipped answer is right. The merged bucket lands third,
+22,512 behind the winner. A top-3 phrasing of the same question - entirely plausible on a
+hidden set drawn from this database - makes the agent report a test account as a customer.
+
+Worth being precise about what failed. I found the junk rows early, worked out the correct
+convention from gold, and pushed it into the prompt as an explicit constraint. That was the
+right diagnosis and an insufficient fix: a 3.8B model at q4 does not reliably obey a
+constraint it has no reason to prefer, and I checked that the constraint was *delivered*
+without ever checking that it was *followed*. Delivery is observable in the trace and I
+tested for it; compliance needed a lint on the generated SQL and I never wrote one.
+
+That lint is the next thing I would add: entity aggregation must group by the id column,
+and a violation is a repair trigger, exactly like the bare-`BETWEEN` lint. The date lint
+exists because I measured the undercount it prevents. This is the same shape of bug and I
+stopped one step short of the same defence.

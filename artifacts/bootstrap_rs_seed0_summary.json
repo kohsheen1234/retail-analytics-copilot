@@ -1,0 +1,31 @@
+{
+  "config": "bootstrap_rs",
+  "seed": 0,
+  "dev_score": 0.4,
+  "dev_correct": 6,
+  "dev_total": 15,
+  "lm_calls": 135,
+  "cache_hits": 0,
+  "billable_lm_calls": 135,
+  "wall_seconds": 2444.9,
+  "max_demos": 2,
+  "train_size": 20,
+  "demos": [
+    {
+      "predictor": "generate",
+      "index": 0,
+      "augmented": true,
+      "question": "How many orders placed in 2018 have no shipped date recorded? Return an integer.",
+      "sql": "SELECT COUNT(*) FROM Orders o JOIN Customers c ON c.CustomerID=o.CustomerID WHERE date(o.OrderDate) BETWEEN '2018-01-01' AND '2018-12-31' AND o.ShippedDate IS NULL"
+    },
+    {
+      "predictor": "generate",
+      "index": 1,
+      "augmented": true,
+      "question": "Top 3 categories by total revenue all-time. Return list[{category:str, revenue:float}].",
+      "sql": "SELECT c.CategoryName, ROUND(SUM(od.UnitPrice*od.Quantity*(1-od.Discount)),2) AS revenue FROM \"Order Details\" od JOIN Orders o ON o.OrderID=od.OrderID JOIN Products p ON p.ProductID=od.ProductID JOIN Categories c ON c.CategoryID=p.CategoryID GROUP BY c.CategoryName ORDER BY revenue DESC LIMIT 3"
+    }
+  ],
+  "model": "phi3.5:3.8b-mini-instruct-q4_K_M",
+  "num_ctx": 4096
+}
