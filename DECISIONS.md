@@ -24,6 +24,28 @@ and the Python line is the one that's provably wrong. Dockerfile base bumped to
 Worth raising with them: if their reference machine really is 3.11, they can't have
 installed this lock either.
 
+### The five documents
+
+Read all five before writing anything. They are small - 2,092 bytes total - and every
+trap in this task lives in them.
+
+| file | bytes | chunks | what it holds |
+|---|---|---|---|
+| `campaign_memo.md` | 315 | 1 | extends Summer Beverages to 2017-07-07, claims precedence |
+| `catalog.md` | 382 | 2 | 8 categories; the "Pantry" reporting group |
+| `kpi_definitions.md` | 741 | 4 | AOV current + legacy, Gross Margin, Revenue |
+| `marketing_calendar.md` | 267 | 3 | Summer Beverages 06-01..06-30, Winter Classics 12-01..12-31 |
+| `product_policy.md` | 387 | 3 | return windows, and the injection |
+
+Committed unchanged; `artifacts/corpus_manifest.json` pins the sha256 of each and a test
+asserts them, so "did not edit the documents" is checkable rather than asserted.
+
+Four of the five contradict something: the memo contradicts the calendar, the policy's
+Notes section contradicts its own Return windows, the KPI doc defines a formula over a
+column that does not exist, and the catalog defines a grouping the database does not
+encode. Only `marketing_calendar.md` is internally consistent, and it is the one the memo
+overrides. Each is written up separately below.
+
 ### Chunk map
 
 13 chunks. Cross-checked three ways: the spec's worked example (marketing_calendar::chunk1
@@ -97,6 +119,34 @@ Nothing in train/dev/eval uses it and nothing in the database encodes it. Implem
 anyway: it's in the assessment's own list of things added examples should stress, and
 grouping by category gives 8 rows where grouping by reporting group gives 7. One of my
 added examples covers it.
+
+### What is actually in the database
+
+24.7 MB, 13 tables, 625,890 rows. Surveyed before writing any SQL:
+
+| table | rows | cols |
+|---|---|---|
+| `Order Details` | 609,283 | 5 |
+| `Orders` | 16,282 | 14 |
+| `Customers` | 93 | 11 |
+| `Products` | 77 | 10 |
+| `Territories` | 53 | 3 |
+| `EmployeeTerritories` | 49 | 2 |
+| `Suppliers` | 29 | 12 |
+| `Employees` | 9 | 18 |
+| `Categories` | 8 | 4 |
+| `Regions` | 4 | 2 |
+| `Shippers` | 3 | 3 |
+| `CustomerDemographics` | **0** | 2 |
+| `CustomerCustomerDemo` | **0** | 2 |
+
+`OrderDate` spans 2012-07-10 to 2023-10-28. Two tables are empty, so any question routed
+through them returns nothing - a correct result that looks like a bug.
+
+97% of the rows are in one table. That shapes the executor: every aggregate is a scan over
+`Order Details`, gold queries run 5-207ms, and the row limit and timeout in
+`sqlite_tool.py` matter for a runaway join rather than for normal work. It also means
+latency here is entirely the model, never the database.
 
 ### Not classic Northwind
 
