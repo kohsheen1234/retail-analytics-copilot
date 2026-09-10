@@ -64,6 +64,21 @@ MAX_REPAIRS = 2         # hard cap from the assessment
 # The DSPy Explainer module is kept and tested; set USE_LM_EXPLANATION=1 to use it.
 USE_LM_EXPLANATION = os.environ.get("USE_LM_EXPLANATION", "0") == "1"
 
+# --- Synthesis ------------------------------------------------------------------
+# The DSPy synthesis module reads the executed rows independently and its answer is
+# compared with the deterministic build. On by default: "Synthesis (DSPy module)" is a
+# named CORE responsibility, and without it no DSPy module participates in synthesis on
+# the SQL path at all.
+#
+# Measured cost on this machine: 6 eval questions took 370s with it against roughly 240s
+# without, i.e. ~22s per SQL question for the extra call. The assessment says the hidden
+# set should run in under 5 minutes on the *reference* machine, which ENVIRONMENT.md
+# leaves as <fill>, so that budget cannot be checked from here; the live session allots 10
+# minutes for the run, which 370s fits inside. Set SYNTH_SECOND_OPINION=0 to drop the call
+# if the run needs to be faster - the shipped answer does not change, only the confidence
+# signal and the trace record are lost.
+SYNTH_SECOND_OPINION = os.environ.get("SYNTH_SECOND_OPINION", "1") == "1"
+
 # --- Confidence rubric --------------------------------------------------------
 # Deterministic, documented in DECISIONS.md. Never exceeds CONF_PENALTY_LINE when a
 # load-bearing assumption was invented rather than sourced from the corpus.

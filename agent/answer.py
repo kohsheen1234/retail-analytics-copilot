@@ -96,6 +96,60 @@ def build_answer_from_text(format_hint: str, text: str) -> Any:
     raise AnswerError(f"document extraction cannot produce {format_hint!r}")
 
 
+def _parse_structured(text: str) -> Any:
+    """Parse an object/list proposal.
+
+    Tries JSON first, then Python literal syntax. phi3.5 emits
+    `{'customer': 'Wilman Kala', 'margin': 251847.49}` with single quotes, which json
+    rejects; scoring that as "no opinion" threw away three genuine agreements on the eval
+    set and cost confidence for no reason.
+    """
+    import ast
+    import json as _json
+    for parse in (_json.loads, ast.literal_eval):
+        try:
+            out = parse(text)
+        except (ValueError, SyntaxError, TypeError):
+            continue
+        if isinstance(out, (dict, list)):
+            return out
+    return None
+
+
+def answers_agree(proposed: str, built: Any, format_hint: str) -> bool | None:
+    """Does the model's proposal match the deterministically built answer?
+
+    Returns None when the proposal cannot be parsed into the requested shape at all,
+    which is a third state: no opinion rather than disagreement. Comparison is on value,
+    not on text, so "14" and 14 agree and 611562.68 agrees with 611562.6800.
+    """
+    text = (proposed or "").strip()
+    if not text or text.upper().startswith("UNKNOWN"):
+        return None
+    hint = format_hint.strip()
+    try:
+        if hint in {"int", "float", "str"}:
+            return coerce_scalar(text, hint) == built
+        parsed = _parse_structured(text)
+        if parsed is None:
+            return None
+        if m := _LIST.match(hint):
+            spec = _spec(m.group(1))
+            if not isinstance(parsed, list) or len(parsed) != len(built):
+                return False
+            return all(
+                all(coerce_scalar(row.get(n), t) == b[n] for n, t in spec)
+                for row, b in zip(parsed, built))
+        if m := _FIELDS.match(hint):
+            spec = _spec(m.group(1))
+            if not isinstance(parsed, dict):
+                return False
+            return all(coerce_scalar(parsed.get(n), t) == built[n] for n, t in spec)
+    except (AnswerError, ValueError, TypeError, AttributeError):
+        return None
+    return None
+
+
 # --- confidence --------------------------------------------------------------
 
 @dataclass
@@ -131,7 +185,8 @@ class Confidence:
 def score_confidence(*, route: str, repairs: int, rows: int, conflicts_resolved: int,
                      invented_approximation: bool, doc_precedence_applied: bool,
                      legacy_window_ambiguity: bool, used_fallback_route: bool,
-                     baseline_artifact: bool, supplied_approximation: bool = False) -> Confidence:
+                     baseline_artifact: bool, supplied_approximation: bool = False,
+                     synthesizer_agrees: bool | None = None) -> Confidence:
     c = Confidence()
     if route == "rag":
         # No executable check on a document lookup: nothing verifies the extraction.
@@ -150,6 +205,15 @@ def score_confidence(*, route: str, repairs: int, rows: int, conflicts_resolved:
         c.penalise(0.05, "router fell back to the deterministic prior")
     if baseline_artifact:
         c.penalise(0.05, "running the uncompiled baseline module")
+    if synthesizer_agrees is False:
+        # An independent read of the same rows reached a different value. Usually the
+        # model is wrong and the coercion is right, but it is a genuine warning that the
+        # query may not mean what the question asked, so it costs confidence rather than
+        # being discarded.
+        c.penalise(0.15, "the synthesis module read the rows differently")
+    elif synthesizer_agrees is None:
+        c.penalise(0.03, "the synthesis module produced no usable second opinion")
+
     if supplied_approximation:
         # Contract-correct -- the question defines the proxy, so the gold uses it too --
         # but the figure is an estimate rather than a measured margin, and the

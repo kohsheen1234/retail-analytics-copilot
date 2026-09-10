@@ -193,6 +193,7 @@ that produced 0.68.
 ### 1. Results
 
 Full dev set (15 = 10 provided + 5 added), two seeds, cold cache per config-and-seed.
+Demos come from `train` only; `assert_no_leakage()` gates `optimize.py`.
 
 | Configuration | Seed | Dev | LM calls | Cache hits | Wall |
 |---|---|---|---|---|---|
@@ -205,81 +206,94 @@ Full dev set (15 = 10 provided + 5 added), two seeds, cold cache per config-and-
 | `BootstrapFewShot` k=2 | 0 | 0.267 (4/15) | 17 | 0 | 318.5s |
 | `BootstrapFewShot` k=2 | 1 | 0.400 (6/15) | 22 | 0 | 217.2s |
 
-Means (spread): baseline 0.133 (0.000), random control 0.200 (0.267), hand-picked control
-**0.533** (0.000), bootstrap 0.333 (0.133). The three required configurations took 25.5 min,
-inside the budget.
+Pooled over both seeds (n=30), Wilson 95% intervals. One question is 6.7 points:
 
-**Shipped: hand-picked control, seed 0** — highest mean, lowest spread, cheap to compile.
+| | mean | spread | 95% CI |
+|---|---|---|---|
+| baseline | 0.133 | 0.000 | [0.05, 0.30] |
+| control (random demos) | 0.200 | **0.267** | [0.10, 0.37] |
+| **hand-picked** | **0.533** | 0.000 | [0.36, 0.70] |
+| bootstrap | 0.333 | 0.133 | [0.19, 0.51] |
 
-The headline is not which optimizer won. Random-sampled demos swing 0.333 → 0.067 across
-seeds — wider than the gap between most configurations — so one control run measures the
-sampler, not the method. **Demo selection dominates optimizer choice**: two demos chosen
-against a measured failure distribution beat both `BootstrapFewShot` and
-`BootstrapFewShotWithRandomSearch` (115 LM calls, 32 min per seed).
+Only hand-picked separates cleanly from baseline; bootstrap overlaps everything. The
+random control's spread of 0.267 is four questions, wider than its gap to any other
+configuration, so a single-seed control run measures the sampler, not the method.
+**Demo selection dominates optimizer choice.** Three required configs: 25.5 min, in
+budget.
 
 ### 2. What changed
 
-No instruction text changed; these optimizers only set demos. The shipped artifact holds
-two demos, both verbatim gold, both verified correct by re-scoring through `sql_metric`,
-chosen against the failure distribution:
-`train_top_supplier_revenue_2017` (four-way join, alias discipline, `(1 - Discount)` on the
-line item, `date()` window, `GROUP BY` the id) and
-`train_added_null_unshipped_orders_2018` (the opposite shape — one table, a NULL predicate —
-so the model does not learn that every question needs a four-way join).
+`artifacts/best.json`: two demos, no instruction text stored, so nothing to quote. Each
+demo's SQL re-executed against its own gold:
 
-The bootstrap audit is the cautionary half: its demos pass the metric, yet one uses bare
-`OrderDate BETWEEN`. That equals gold on its own question only because none of the 21
-unshipped 2018 orders falls on 2018-12-31; the same pattern undercounts by 3, 4 and 1 orders
-on other windows. Execution equivalence on one example cannot see a bug that fires only on
-others.
+| # | augmented | Demo | SQL correct? |
+|---|---|---|---|
+| 0 | no | `train_added_null_unshipped_orders_2018` | **yes** — verbatim gold |
+| 1 | no | `train_top_supplier_revenue_2017` | **yes** — verbatim gold |
+
+Correct by construction — hand-picked demos are gold SQL, so the metric cannot admit a
+wrong one.
+
+The bootstrap artifacts are the contrast: their demos also pass, yet one uses bare
+`OrderDate BETWEEN`, which equals gold on its own question only because none of the 21
+unshipped 2018 orders falls on 2018-12-31. The same pattern undercounts by 3, 4 and 1
+orders on other windows. A per-example metric asks whether a demo is right about its own
+question, never what it teaches.
 
 ### 3. Per-example flips
 
-Against the random control at seed 0, hand-picking fixes `dev_seafood_revenue_q1_2018`,
-`dev_aov_2018` and `dev_germany_based_customers_revenue_2020` — all three had failed with
-`no such column: o.Discount`, and the four-way-join demo teaches the correct qualifier. It
-also fixes `dev_policy_perishables_max_days` (SQL emitted for a document-only question) and
-loses `dev_federal_shipping_orders_2017`.
+Baseline → shipped, **seven wrong→right**: ambiguous column
+(`dev_seafood_revenue_q1_2018`), unrecognized token (`dev_aov_2018`), `no such column:
+OrderDate` (`dev_lowest_category_qty_2023`), unquoted `Order Details`
+(`dev_dairy_qty_winter_2017`), syntax error
+(`dev_germany_based_customers_revenue_2020`), incomplete statement
+(`dev_added_legacy_aov_2014`), and `dev_policy_perishables_max_days`, which emitted SQL for
+a document-only question until the route hint landed. Six of seven were malformed SQL, not
+wrong reasoning: the demos fixed form, not logic.
 
-Four examples pass in no configuration: `dev_top3_customers_revenue_2019`,
-`dev_added_reporting_group_count`, `dev_added_tie_categories_with_12_products`,
-`dev_added_grain_lines_vs_orders_2020`. Three are deliberately hard added examples and mark
-the model's ceiling, not the harness's.
+**One right→wrong**: `dev_federal_shipping_orders_2017`, now `near "=": syntax error`. The
+demos pushed output toward multi-table joins and this two-table count degraded — the cost
+of targeting the dominant failure mode.
+
+Against the random control it is +4/−1, two of them `rows differ` rather than crashes:
+semantic fixes from the column-ownership constraints. **Five never pass anywhere**, three
+being deliberately hard added examples. They mark the model's ceiling, not the harness's.
 
 ### 4. Generalization
 
-Module dev score and end-to-end accuracy differ, demonstrated rather than asserted: in an
-earlier run the artifact with the best dev mean scored *worse* end-to-end, which is why
-`scripts/select_artifact.py` gates on an end-to-end regression before ranking by dev. The
-agent scores 6/6 where the module scores 8/15 — the difference is the pipeline.
+Module and end-to-end differ, shown not asserted: an earlier run's best dev mean scored
+*worse* end-to-end, so `select_artifact.py` gates on an end-to-end regression before
+ranking by dev.
 
-Predicted **module** on the hidden set: 0.40–0.55, no real gap, since hand-picked demos are
-seed-independent and target a failure mode rather than specific questions. Predicted
-**end-to-end**: 70–85% with 1–2 escalations — below 6/6, because the eval set has no
-unresolvable conflict and no undocumented-COGS question, and one provided training example
-is 91% similar to an eval question (`AI_USAGE.md` §6).
+**Module, hidden: 0.40–0.55**, no real gap expected: hand-picked demos are seed-independent
+and target a failure *mode*, not specific questions, so nothing question-shaped can
+overfit, and the CI [0.36, 0.70] admits anything in that band.
+
+**End-to-end, hidden: 70–85%** with 1–2 escalations, below the eval file's 6/6: that set has
+no unresolvable conflict and no undocumented-COGS question, and one *provided* training
+example is 91% similar to an eval question (`AI_USAGE.md` §6), flattering the visible set
+only.
 
 ### 5. Short answers
 
 **Teacher program.** The teacher runs the training inputs, the metric filters the traces,
 and survivors become demos. With no `teacher` argument it is a deepcopy of the student, so
-the teacher program is this `NL2SQL` module and the teacher LM is the pinned phi3.5 — the
+the teacher program is this `NL2SQL` module and the teacher LM is the pinned phi3.5: the
 student teaches itself. It cannot introduce an idiom the model never emits, only pin down
-what it already got right, which is why a demo carrying a latent date bug survived.
+what it already got right — which is why a demo with a latent date bug survived.
 
 **A float in (0,1) during bootstrapping.** `bootstrap.py:205` computes `metric_val =
-self.metric(...)` and then, absent `metric_threshold`, `success = metric_val` — used for
-truthiness. Any non-zero float is truthy, so 0.3 for "3 of 5 rows matched" admits that trace
-and its wrong SQL reaches every later call, silently. Returning `bool` makes filter and
-scorer agree; `if self.metric_threshold:` is also falsey at `0.0`, so that threshold quietly
-restores truthiness.
+self.metric(...)` then, absent `metric_threshold`, `success = metric_val` — used for
+truthiness. Any non-zero float is truthy, so 0.3 for "3 of 5 rows matched" admits that
+trace and its wrong SQL reaches every later call, silently. `bool` makes filter and scorer
+agree; `if self.metric_threshold:` is falsey at `0.0`, so that threshold quietly restores
+truthiness.
 
 **Dev +30, hidden down.** Either leakage or near-duplication, so dev measures memorisation,
-or overfitting to demo form — an idiom suiting dev's question shapes that misfires elsewhere.
-Re-score dev with demo-overlapping examples removed: if the gain vanishes, it is the former.
-Otherwise check whether hidden failures cluster on the demos' idiom, indicating the latter.
-
----
+or overfitting to demo form. Re-score dev with demo-overlapping examples removed: if the
+gain vanishes it is the former. Otherwise check whether hidden failures cluster on the
+demos' idiom — the mode visible above, where seven crashes were fixed and one simple query
+regressed.
 
 ## Optional tasks
 

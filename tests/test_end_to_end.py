@@ -54,6 +54,20 @@ class ScriptedDoc(dspy.Module):
                                insufficient=self.value.upper().startswith("INSUFFICIENT"))
 
 
+class ScriptedSynth(dspy.Module):
+    """Stub for the DSPy synthesis module. `agrees=True` echoes whatever the
+    deterministic layer built, so the agreement path is exercised without a model."""
+
+    def __init__(self, answer: str = "", unknown: bool = False):
+        super().__init__()
+        self.answer, self.unknown = answer, unknown
+        self.calls: list[str] = []
+
+    def forward(self, question, format_hint, result):
+        self.calls.append(result)
+        return dspy.Prediction(answer=self.answer, unknown=self.unknown)
+
+
 class FixedExplainer(dspy.Module):
     def forward(self, question, evidence):
         return dspy.Prediction(explanation="Computed from the cited tables.")
@@ -71,6 +85,7 @@ def deps(tmp_path):
     d = build_deps()
     d.explainer = FixedExplainer()
     d.router = FixedRouter()
+    d.synthesizer = ScriptedSynth(unknown=True)   # no opinion by default
     d.traces_dir = tmp_path / "traces"
     return d
 
@@ -288,3 +303,51 @@ class TestOutputContract:
             "non-perishables? Return an integer.", "int"), deps)
         assert rec.sql == ""
         assert all("::" in c for c in rec.citations)
+
+
+
+class TestSynthesisModule:
+    """The DSPy synthesis module is advisory; the deterministic build is authoritative."""
+
+    QUESTION = TestHybridHappyPath.QUESTION
+
+    def test_agreement_is_recorded_and_does_not_change_the_answer(self, deps):
+        deps.nl2sql = ScriptedSQL(REVENUE)
+        deps.synthesizer = ScriptedSynth(answer="611562.68")
+        rec = answer_question(q("e2e_syn_ok", self.QUESTION, "float"), deps)
+        assert rec.final_answer == pytest.approx(611562.68, abs=0.01)
+        ev = [e for e in trace_of(deps, "e2e_syn_ok")
+              if e["outputs"].get("synthesizer_agrees") is not None]
+        assert ev and ev[0]["outputs"]["synthesizer_agrees"] is True
+
+    def test_disagreement_never_overrides_the_deterministic_answer(self, deps):
+        """The whole point: a wrong model reading must not reach final_answer."""
+        deps.nl2sql = ScriptedSQL(REVENUE)
+        deps.synthesizer = ScriptedSynth(answer="999999.99")
+        rec = answer_question(q("e2e_syn_bad", self.QUESTION, "float"), deps)
+        assert rec.final_answer == pytest.approx(611562.68, abs=0.01)
+
+    def test_disagreement_costs_confidence(self, deps):
+        deps.nl2sql = ScriptedSQL(REVENUE)
+        deps.synthesizer = ScriptedSynth(answer="611562.68")
+        agree = answer_question(q("e2e_syn_a", self.QUESTION, "float"), deps).confidence
+        deps.nl2sql = ScriptedSQL(REVENUE)
+        deps.synthesizer = ScriptedSynth(answer="999999.99")
+        disagree = answer_question(q("e2e_syn_b", self.QUESTION, "float"), deps).confidence
+        assert disagree < agree
+
+    def test_it_sees_the_executed_rows(self, deps):
+        deps.nl2sql = ScriptedSQL(REVENUE)
+        deps.synthesizer = ScriptedSynth(answer="611562.68")
+        answer_question(q("e2e_syn_rows", self.QUESTION, "float"), deps)
+        assert "columns:" in deps.synthesizer.calls[0]
+        assert "611562.68" in deps.synthesizer.calls[0]
+
+    def test_a_crashing_synthesizer_does_not_break_the_answer(self, deps):
+        class Boom(dspy.Module):
+            def forward(self, **kw): raise RuntimeError("model down")
+        deps.nl2sql = ScriptedSQL(REVENUE)
+        deps.synthesizer = Boom()
+        rec = answer_question(q("e2e_syn_boom", self.QUESTION, "float"), deps)
+        assert rec.status == "answered"
+        assert rec.final_answer == pytest.approx(611562.68, abs=0.01)

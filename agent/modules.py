@@ -24,7 +24,8 @@ import re
 
 import dspy
 
-from agent.signatures import ExplainAnswer, ExtractFromDocs, GenerateSQL, RouteQuestion
+from agent.signatures import (ExplainAnswer, ExtractFromDocs, GenerateSQL, RouteQuestion,
+                              SynthesizeAnswer)
 
 # SQLite keywords and functions the model actually uses here. Used only to repair
 # corrupted tokens, never to validate: the execution boundary remains the only authority
@@ -167,6 +168,33 @@ class DocAnswer(dspy.Module):
         out = self.extract(question=question, format_hint=format_hint, context=context)
         value = (getattr(out, "value", "") or "").strip()
         return dspy.Prediction(value=value, insufficient=value.upper().startswith("INSUFFICIENT"))
+
+
+class Synthesizer(dspy.Module):
+    """Proposes the typed answer from the executed rows.
+
+    This is the DSPy module the spec asks for in the synthesis responsibility, and it is
+    deliberately *not* authoritative. `agent/answer.build_answer` constructs the shipped
+    `final_answer` from the same rows in code, and where the two disagree the
+    deterministic value wins and the disagreement is recorded.
+
+    That ordering is not timidity, it is what the contract requires: `final_answer` must
+    match `format_hint` exactly and must be identical across two fresh runs, and a 3.8B
+    model emitting typed JSON satisfies neither reliably. What the module contributes is a
+    genuine second opinion. Agreement between an independent reading of the rows and the
+    coercion path is evidence the answer is right; disagreement is evidence something is
+    off - the wrong column was selected, or the rows do not mean what the query intended -
+    and it feeds the confidence rubric rather than being discarded.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.synthesize = dspy.Predict(SynthesizeAnswer)
+
+    def forward(self, question: str, format_hint: str, result: str) -> dspy.Prediction:
+        out = self.synthesize(question=question, format_hint=format_hint, result=result)
+        text = (getattr(out, "answer", "") or "").strip()
+        return dspy.Prediction(answer=text, unknown=text.upper().startswith("UNKNOWN"))
 
 
 class Explainer(dspy.Module):

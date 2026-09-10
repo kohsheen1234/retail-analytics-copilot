@@ -33,10 +33,11 @@ from typing import Any, Literal, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from agent import config
-from agent.answer import AnswerError, build_answer, build_answer_from_text, score_confidence
+from agent.answer import (AnswerError, answers_agree, build_answer,
+                          build_answer_from_text, score_confidence)
 from agent.datasets import constraints_text
 from agent.injection import Quarantined, sanitize, wrap_untrusted
-from agent.modules import DocAnswer, Explainer, NL2SQL, Router
+from agent.modules import DocAnswer, Explainer, NL2SQL, Router, Synthesizer
 from agent.planner import Plan, build_plan
 from agent.retriever import Hit, Retriever
 from agent.schema import all_columns, known_tables, schema_text
@@ -45,6 +46,10 @@ from agent.trace import Tracer
 from agent.validator import Failure, validate
 from models import OutputRecord, QuestionRecord, ReviewPacket
 from sqlite_tool import SQLiteTool
+
+
+class SkipSynth(Exception):
+    """Control-flow marker for the disabled second-opinion path."""
 
 
 class State(TypedDict, total=False):
@@ -63,6 +68,8 @@ class State(TypedDict, total=False):
     rows: list[tuple]
     exec_error: str | None
     final_answer: Any
+    synth_agrees: bool | None
+    synth_proposed: str
     citations: list[str]
     assumptions: list[str]
     explanation: str
@@ -82,6 +89,7 @@ class Deps:
     tool: SQLiteTool
     nl2sql: NL2SQL
     doc_answer: DocAnswer
+    synthesizer: Synthesizer
     explainer: Explainer
     router: Router
     db_schema: str
@@ -99,7 +107,8 @@ def build_deps(db_path: Path | None = None, baseline_artifact: bool = False) -> 
     return Deps(
         retriever=retr,
         tool=SQLiteTool(db, row_limit=config.SQL_ROW_LIMIT, timeout_s=config.SQL_TIMEOUT_S),
-        nl2sql=NL2SQL(), doc_answer=DocAnswer(), explainer=Explainer(), router=Router(),
+        nl2sql=NL2SQL(), doc_answer=DocAnswer(), synthesizer=Synthesizer(),
+        explainer=Explainer(), router=Router(),
         db_schema=schema_text(db), schema_map=SQLiteTool(db).schema(),
         tables=known_tables(db), columns=all_columns(db),
         corpus_chunk_ids={c.id for c in retr.chunks},
@@ -231,10 +240,32 @@ def make_graph(deps: Deps, tracer: Tracer):
             except AnswerError as e:
                 st.record(coercion_error=str(e))
                 return {"final_answer": None, "failures": [f"format: {e}"]}
+            # DSPy synthesis module: an independent read of the same rows. Advisory by
+            # design - the deterministic value above is what ships - but its agreement or
+            # disagreement is a real signal and feeds the confidence rubric.
+            result_text = ("columns: " + ", ".join(cols) + "\nrows:\n"
+                           + "\n".join(str(list(r)) for r in rows[:10]))
+            proposed, agrees = "", None
+            try:
+                if not config.SYNTH_SECOND_OPINION:
+                    raise SkipSynth
+                pred = deps.synthesizer(question=state["question"],
+                                        format_hint=state["format_hint"], result=result_text)
+                proposed = pred.answer
+                agrees = None if pred.unknown else answers_agree(
+                    proposed, answer, state["format_hint"])
+            except SkipSynth:
+                st.record(synthesizer="disabled via SYNTH_SECOND_OPINION=0")
+            except Exception as e:
+                st.record(synthesizer_error=str(e))
+
             tables = physical_tables(state["sql"], deps.tables)
             chunks = _chunks_supporting(state, answer)
-            st.record(answer=answer, tables=tables, chunks=chunks)
-            return {"final_answer": answer, "citations": tables + chunks}
+            st.record(answer=answer, tables=tables, chunks=chunks,
+                      synthesizer_proposed=proposed, synthesizer_agrees=agrees,
+                      authoritative="deterministic build from rows")
+            return {"final_answer": answer, "citations": tables + chunks,
+                    "synth_agrees": agrees, "synth_proposed": proposed}
 
     def n_validate(state: State) -> State:
         attempt = state.get("repairs", 0)
@@ -318,6 +349,7 @@ def make_graph(deps: Deps, tracer: Tracer):
                 legacy_window_ambiguity=_legacy_ambiguity(state, plan),
                 used_fallback_route=bool(state.get("router_detail", {}).get("used_fallback")),
                 baseline_artifact=deps.baseline_artifact,
+                synthesizer_agrees=state.get("synth_agrees"),
             )
             assumptions = _assumptions(state, plan)
             st.record(confidence=conf.value, rubric=conf.notes, assumptions=assumptions)

@@ -59,3 +59,17 @@ class RouteQuestion(dspy.Signature):
 
     question: str = dspy.InputField()
     route: str = dspy.OutputField(desc="exactly one of: rag, sql, hybrid")
+
+
+class SynthesizeAnswer(dspy.Signature):
+    """Read the query result and state the answer value in the requested shape.
+
+    Use only the rows given. Output the value alone, with no prose, no units and no
+    field names: a bare number for int/float, a bare string for str, and for object or
+    list shapes a compact JSON object or array using exactly the field names in the
+    format hint. If the rows do not contain the answer, reply exactly: UNKNOWN."""
+
+    question: str = dspy.InputField()
+    format_hint: str = dspy.InputField(desc="the exact shape the answer must take")
+    result: str = dspy.InputField(desc="columns and rows returned by the executed SQL")
+    answer: str = dspy.OutputField(desc="the value alone, or UNKNOWN")
