@@ -227,8 +227,9 @@ when the data doesn't exercise the shape.
 
 ### Corrected brief
 
-Visibility resolved (public). Database now ships in the pack with its SHA-256 published in
-the brief rather than held in the invitation. `data/` including the database is a listed
+Visibility resolved (public). The brief now says the database ships in the pack with its
+SHA-256 published there rather than held in the invitation - though the pack I received
+still doesn't contain it (traced below). `data/` including the database is a listed
 deliverable, so it's committed now. Root layout I'd already flattened to matches their new
 skeleton exactly, and requirements.txt is still byte-identical.
 
@@ -248,6 +249,48 @@ recording both hashes, and making the semantic check the binding one -
 
 Raise it with them. If their reference really is a different build, their gold answers
 differ from the shipped train.jsonl, which is a much bigger problem than a stale hash.
+
+### Where the two hashes actually come from
+
+Went back and traced the provenance instead of leaving this as "one of us is wrong".
+
+The original pack (`candidate_pack.zip`, sha `8e7df933`, 28 files, 29KB) publishes **no
+checksum at all**. Its Data setup section reads:
+
+```
+curl -L -o data/northwind.sqlite <URL provided in your invitation email>
+sha256sum data/northwind.sqlite
+```
+
+> The checksum must match the value in your invitation email.
+
+The revised brief - three separate downloads, all byte-identical at 22,657 bytes - is the
+first document to print `2f4f5c68`, and it changed the claim to "included in this pack".
+
+**But no pack I received contains a database.** Both extracted pack trees hold
+`data/train.jsonl` and `data/dev.jsonl` and no `.sqlite` anywhere. So `2f4f5c68` is the hash
+of a file that was never delivered to me. Mine came from the invitation URL, downloaded
+twice, and both copies are `fb24a4f7`.
+
+So the checksum never matched and never could have. There was nothing to check it against
+until the revision, and by then the brief had stopped shipping the URL without starting to
+ship the file.
+
+What rules out a *data* difference: `train.jsonl` (`e4be4754`) and `dev.jsonl` (`5f5af20d`)
+are byte-identical between the original pack and now, as are all five docs and `chunker.py`.
+The gold answers never changed across the revision. So whatever build they hold has to
+reproduce these same 23 answers - and mine does, 23/23. The two files are data-equivalent
+even if their bytes differ.
+
+Most likely a rebuild or `VACUUM` between the file that got hashed and the file that got
+served: same rows, different page layout, different hash. Mine is writer version SQLite
+3.47.1, `journal_mode=delete`, 6,031 pages, freelist 0, `PRAGMA integrity_check` **ok**. And
+I confirmed my own runs aren't the cause - copying the file and opening it read-write leaves
+the hash unchanged, since it's a rollback-journal database, not WAL.
+
+Still asking them for the file that hashes `2f4f5c68`. If it exists and disagrees with mine
+on even one of the 23, that's a defect in their fixture rather than in my agent, and I'd
+rather have it in hand before the live session than discover it on the hidden set.
 
 ### OrderDate: resolved
 

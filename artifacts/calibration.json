@@ -1,0 +1,128 @@
+{
+  "accuracy": 0.6923,
+  "mean_confidence": 0.83,
+  "gap": 0.1377,
+  "n_answered": 13,
+  "rows": [
+    {
+      "id": "dev_seafood_revenue_q1_2018",
+      "status": "answered",
+      "confidence": 0.9,
+      "correct": true,
+      "repairs": 0,
+      "assumptions": 1
+    },
+    {
+      "id": "dev_orders_freight_over_100_2022",
+      "status": "answered",
+      "confidence": 0.9,
+      "correct": true,
+      "repairs": 0,
+      "assumptions": 0
+    },
+    {
+      "id": "dev_top3_customers_revenue_2019",
+      "status": "answered",
+      "confidence": 0.9,
+      "correct": false,
+      "repairs": 0,
+      "assumptions": 0
+    },
+    {
+      "id": "dev_federal_shipping_orders_2017",
+      "status": "answered",
+      "confidence": 0.78,
+      "correct": true,
+      "repairs": 1,
+      "assumptions": 1
+    },
+    {
+      "id": "dev_aov_2018",
+      "status": "answered",
+      "confidence": 0.85,
+      "correct": true,
+      "repairs": 0,
+      "assumptions": 2
+    },
+    {
+      "id": "dev_lowest_category_qty_2023",
+      "status": "answered",
+      "confidence": 0.9,
+      "correct": true,
+      "repairs": 0,
+      "assumptions": 1
+    },
+    {
+      "id": "dev_dairy_qty_winter_2017",
+      "status": "answered",
+      "confidence": 0.9,
+      "correct": true,
+      "repairs": 0,
+      "assumptions": 0
+    },
+    {
+      "id": "dev_products_in_beverages",
+      "status": "answered",
+      "confidence": 0.66,
+      "correct": false,
+      "repairs": 2,
+      "assumptions": 1
+    },
+    {
+      "id": "dev_germany_based_customers_revenue_2020",
+      "status": "answered",
+      "confidence": 0.9,
+      "correct": true,
+      "repairs": 0,
+      "assumptions": 1
+    },
+    {
+      "id": "dev_policy_perishables_max_days",
+      "status": "answered",
+      "confidence": 0.77,
+      "correct": false,
+      "repairs": 0,
+      "assumptions": 1
+    },
+    {
+      "id": "dev_added_boundary_inclusive_june_2017_qty",
+      "status": "answered",
+      "confidence": 0.8,
+      "correct": false,
+      "repairs": 0,
+      "assumptions": 1
+    },
+    {
+      "id": "dev_added_reporting_group_count",
+      "status": "needs_review",
+      "confidence": null,
+      "correct": false,
+      "repairs": 2,
+      "assumptions": 0
+    },
+    {
+      "id": "dev_added_tie_categories_with_12_products",
+      "status": "needs_review",
+      "confidence": null,
+      "correct": false,
+      "repairs": 2,
+      "assumptions": 0
+    },
+    {
+      "id": "dev_added_grain_lines_vs_orders_2020",
+      "status": "answered",
+      "confidence": 0.78,
+      "correct": true,
+      "repairs": 1,
+      "assumptions": 1
+    },
+    {
+      "id": "dev_added_legacy_aov_2014",
+      "status": "answered",
+      "confidence": 0.75,
+      "correct": true,
+      "repairs": 0,
+      "assumptions": 3
+    }
+  ]
+}

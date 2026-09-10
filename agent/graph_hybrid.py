@@ -41,7 +41,8 @@ from agent.modules import DocAnswer, Explainer, NL2SQL, Router, Synthesizer
 from agent.planner import Plan, build_plan
 from agent.retriever import Hit, Retriever
 from agent.schema import all_columns, known_tables, schema_text
-from agent.sql_analysis import physical_tables, schema_errors, unwrapped_date_comparisons
+from agent.sql_analysis import (interpretive_choices, physical_tables, schema_errors,
+                                unwrapped_date_comparisons)
 from agent.trace import Tracer
 from agent.validator import Failure, validate
 from models import OutputRecord, QuestionRecord, ReviewPacket
@@ -68,6 +69,7 @@ class State(TypedDict, total=False):
     rows: list[tuple]
     exec_error: str | None
     final_answer: Any
+    interpretations: list[str]
     synth_agrees: bool | None
     synth_proposed: str
     citations: list[str]
@@ -259,12 +261,15 @@ def make_graph(deps: Deps, tracer: Tracer):
             except Exception as e:
                 st.record(synthesizer_error=str(e))
 
+            interps = interpretive_choices(state["sql"], deps.schema_map,
+                                           state["question"], state.get("constraints", ""))
             tables = physical_tables(state["sql"], deps.tables)
             chunks = _chunks_supporting(state, answer)
-            st.record(answer=answer, tables=tables, chunks=chunks,
+            st.record(answer=answer, tables=tables, chunks=chunks, interpretations=interps,
                       synthesizer_proposed=proposed, synthesizer_agrees=agrees,
                       authoritative="deterministic build from rows")
             return {"final_answer": answer, "citations": tables + chunks,
+                    "interpretations": interps,
                     "synth_agrees": agrees, "synth_proposed": proposed}
 
     def n_validate(state: State) -> State:
@@ -350,6 +355,7 @@ def make_graph(deps: Deps, tracer: Tracer):
                 used_fallback_route=bool(state.get("router_detail", {}).get("used_fallback")),
                 baseline_artifact=deps.baseline_artifact,
                 synthesizer_agrees=state.get("synth_agrees"),
+                open_interpretations=len(state.get("interpretations") or []),
             )
             assumptions = _assumptions(state, plan)
             st.record(confidence=conf.value, rubric=conf.notes, assumptions=assumptions)
@@ -536,6 +542,7 @@ def _assumptions(state: State, plan: Plan) -> list[str]:
         out.append("The window begins before the current KPI definition's effective date; "
                    "used the current definition because the question did not ask for the "
                    "legacy figure.")
+    out.extend(state.get("interpretations") or [])
     if state.get("repairs"):
         out.append(f"Required {state['repairs']} SQL repair attempt(s); "
                    "the final query is the one reported.")

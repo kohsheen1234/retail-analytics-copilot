@@ -367,3 +367,118 @@ def schema_errors(sql: str, schema: dict[str, list[dict]]) -> list[str]:
         if p not in seen:
             seen.append(p)
     return seen
+
+
+# --- interpretive choices -----------------------------------------------------
+# Found by running an ad-hoc question the eval set does not contain:
+# "How many orders were shipped to Germany in 2019?" has four defensible readings -
+# ShipCountry or Customers.Country crossed with OrderDate or ShippedDate - giving 175,
+# 173, 153 and 154. The agent answered 154 with `assumptions: []` and confidence 0.9.
+# The contract is explicit that an empty assumptions list on a question needing an
+# interpretation is a defect, and near-certainty on an ambiguous reading is the
+# calibration failure the scoring punishes.
+#
+# The planner catches interpretations that come from the *documents*. This catches the
+# ones the model makes inside the SQL, which the planner never sees.
+
+_SEMANTIC_SUFFIXES = ("Date", "Country", "City", "Region", "PostalCode", "Address",
+                      "Price", "Phone")
+
+
+def _column_groups(schema: dict[str, list[dict]]) -> dict[str, list[str]]:
+    """Columns sharing a semantic suffix, as `Table.Column`. A query must pick one."""
+    groups: dict[str, list[str]] = {}
+    for table, cols in schema.items():
+        for c in cols:
+            for suf in _SEMANTIC_SUFFIXES:
+                if c["name"].endswith(suf):
+                    groups.setdefault(suf, []).append(f"{table}.{c['name']}")
+                    break
+    return {k: sorted(v) for k, v in groups.items() if len(v) > 1}
+
+
+def _question_tokens(question: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z]+", question.lower()) if len(w) > 2}
+
+
+def _names_column(question_tokens: set[str], column: str) -> bool:
+    """Does the question name this column specifically, rather than its family?
+
+    `ShippedDate` is named by "shipped"; `OrderDate` by "order"/"ordered"/"placed".
+    Matching on the column's distinguishing prefix, not the shared suffix, is what
+    separates "the question chose" from "the model chose".
+    """
+    bare = column.split(".", 1)[1]
+    for suf in _SEMANTIC_SUFFIXES:
+        if bare.endswith(suf) and len(bare) > len(suf):
+            prefix = bare[: -len(suf)].lower()
+            return any(t.startswith(prefix) or prefix.startswith(t) for t in question_tokens)
+    return bare.lower() in question_tokens
+
+
+def interpretive_choices(sql: str, schema: dict[str, list[dict]], question: str,
+                         constraints: str = "") -> list[str]:
+    """Choices the SQL made between equally available columns that the question left open.
+
+    Reports rather than resolves: the point is to put the interpretation in `assumptions`
+    and take it out of `confidence`, not to guess which reading the asker meant.
+
+    A choice the planner already dictated is not the model's interpretation, so anything
+    named in `constraints` is suppressed. That is what keeps this quiet on the ordinary
+    cases: `DATES: ... date(OrderDate) ...` and `REVENUE uses "Order Details".UnitPrice`
+    are always supplied, so picking those columns is compliance, not a judgement call.
+    Deviating from them - `ShippedDate` where the constraint said `OrderDate` - still
+    fires, which is exactly the case worth surfacing.
+    """
+    low_constraints = constraints.lower()
+    if not sql.strip():
+        return []
+    refs, _ = _refs_with_aliases(sql)
+    by_fold = {t.lower(): t for t in schema}
+    scope = {}
+    for name, alias in refs:
+        real = by_fold.get(name.lower())
+        if real:
+            scope[name.lower()] = real
+            if alias:
+                scope[alias.lower()] = real
+
+    body = _STRINGS.sub("''", _COMMENTS.sub(" ", sql))
+    used: set[str] = set()
+    for m in _QUALIFIED.finditer(body):
+        qual = (m.group(1) or m.group(2) or m.group(3) or "").lower()
+        col = m.group(4) or m.group(5) or m.group(6) or ""
+        if (table := scope.get(qual)):
+            used.add(f"{table}.{col}")
+    # unqualified columns: attribute to whichever referenced table owns them uniquely
+    owners: dict[str, list[str]] = {}
+    for table, cols in schema.items():
+        for c in cols:
+            owners.setdefault(c["name"].lower(), []).append(table)
+    referenced = {t for t in scope.values()}
+    for tok in re.findall(r"\b[A-Za-z_]\w*\b", body):
+        cands = [t for t in owners.get(tok.lower(), []) if t in referenced]
+        if len(cands) == 1:
+            real = next(c["name"] for c in schema[cands[0]] if c["name"].lower() == tok.lower())
+            used.add(f"{cands[0]}.{real}")
+
+    qtok = _question_tokens(question)
+    out: list[str] = []
+    for suf, members in _column_groups(schema).items():
+        chosen = sorted(used & set(members))
+        if len(chosen) != 1:
+            continue                      # none used, or the query already spans several
+        pick = chosen[0]
+        if _names_column(qtok, pick):
+            continue                      # the question asked for this one specifically
+        bare = pick.split(".", 1)[1].lower()
+        if bare in low_constraints:
+            continue                      # the planner already dictated this column
+        # only offer alternatives on tables the query already touches or could join
+        alts = [m for m in members
+                if m != pick and m.split(".")[0] in referenced]
+        if not alts:
+            continue
+        out.append(f"Used {pick} where the question did not say which to use; "
+                   f"{', '.join(alts)} would also have been defensible.")
+    return sorted(out)

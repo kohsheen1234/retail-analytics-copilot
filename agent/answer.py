@@ -156,14 +156,28 @@ def answers_agree(proposed: str, built: Any, format_hint: str) -> bool | None:
 class Confidence:
     """A deterministic rubric, not a model self-report.
 
-    The escalation scoring penalises a wrong answer above 0.7 extra, so the rubric's job
-    is to keep confidence under that line whenever a load-bearing assumption was invented
-    rather than sourced, and to move with the signals that actually predict error here:
-    repairs used, whether a document conflict had to be resolved, and whether the answer
-    rests on an approximation the corpus never documented.
+    `confidence` is defined as the probability the answer is correct, and the assessment
+    compares confidence against correctness across all questions. That makes both
+    directions an error, which is why the base rate is measured rather than assumed.
+
+    `scripts/calibration.py` runs the full agent over the 15 dev questions and compares
+    each answer to its gold. At base 0.90 the result was accuracy **0.692**, mean
+    confidence **0.830** - over-confident by +0.138, with **three of four wrong answers
+    sitting above the 0.7 line** that carries the extra penalty. Base 0.75 brings mean
+    confidence to 0.680 against accuracy 0.692 (gap -0.012) and leaves one penalty-line
+    violation instead of three.
+
+    One caveat stated plainly: this is a single scalar fitted to 13 answered dev
+    questions, so it is calibration on a small sample, not a guarantee. What it is not is
+    an invented number - and the direction of the correction is the opposite of intuition,
+    which is the reason for measuring instead of guessing.
+
+    Discrimination is the weaker half and is not fixed here: mean confidence is 0.851 when
+    correct against 0.782 when wrong, a separation of only +0.069. Fitting signals to
+    close that on 13 points would be overfitting; the honest move is to report it.
     """
 
-    base: float = 0.90
+    base: float = 0.75
     notes: list[str] = field(default_factory=list)
     _capped: bool = False
 
@@ -186,7 +200,8 @@ def score_confidence(*, route: str, repairs: int, rows: int, conflicts_resolved:
                      invented_approximation: bool, doc_precedence_applied: bool,
                      legacy_window_ambiguity: bool, used_fallback_route: bool,
                      baseline_artifact: bool, supplied_approximation: bool = False,
-                     synthesizer_agrees: bool | None = None) -> Confidence:
+                     synthesizer_agrees: bool | None = None,
+                     open_interpretations: int = 0) -> Confidence:
     c = Confidence()
     if route == "rag":
         # No executable check on a document lookup: nothing verifies the extraction.
@@ -205,6 +220,13 @@ def score_confidence(*, route: str, repairs: int, rows: int, conflicts_resolved:
         c.penalise(0.05, "router fell back to the deterministic prior")
     if baseline_artifact:
         c.penalise(0.05, "running the uncompiled baseline module")
+    if open_interpretations:
+        # The SQL chose between columns the question left open. The answer may well be
+        # right, but it answers one reading of several, so it cannot be near-certain.
+        c.penalise(0.10 * open_interpretations,
+                   f"{open_interpretations} column choice(s) the question did not settle")
+        c.cap(0.75, "the question admits more than one defensible reading")
+
     if synthesizer_agrees is False:
         # An independent read of the same rows reached a different value. Usually the
         # model is wrong and the coercion is right, but it is a genuine warning that the

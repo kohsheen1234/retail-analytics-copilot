@@ -20,7 +20,10 @@ TRACES_DIR = ROOT / "traces"
 
 DB_PATH = Path(os.environ.get("NORTHWIND_DB", DATA_DIR / "northwind.sqlite"))
 
-# Two checksums, because they disagree. See DECISIONS.md 2026-09-08.
+# Two checksums, because they disagree. See DECISIONS.md, "Where the two hashes actually
+# come from": the published value first appears in the revised brief, which claims the
+# database ships in the pack; no delivered pack contains one, so PUBLISHED describes a file
+# that was never served here.
 #   PUBLISHED: the value printed in the assessment.
 #   OBSERVED:  the file actually delivered, which reproduces all 23 provided gold
 #              answers exactly (floats to 2dp on ~4.5e8 magnitudes). That is far

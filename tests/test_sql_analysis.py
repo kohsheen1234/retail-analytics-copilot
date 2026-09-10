@@ -14,6 +14,7 @@ import pytest
 
 from agent.sql_analysis import (
     cte_names,
+    interpretive_choices,
     has_top_level_order_by,
     physical_tables,
     tokenize,
@@ -163,3 +164,83 @@ class TestDateLint:
                 ex = json.loads(line)
                 if ex["gold_sql"]:
                     assert unwrapped_date_comparisons(ex["gold_sql"]) == [], ex["id"]
+
+
+class TestInterpretiveChoices:
+    """Choices the SQL made that the question left open.
+
+    Found by running a question the eval set does not contain: "How many orders were
+    shipped to Germany in 2019?" has four defensible readings (ShipCountry or
+    Customers.Country, crossed with OrderDate or ShippedDate) giving 175, 173, 153 and
+    154. The agent answered 154 with an empty assumptions list and confidence 0.9. The
+    contract calls an empty assumptions list on a question needing interpretation a
+    defect.
+    """
+
+    CONSTRAINTS = ('DATES: OrderDate mixes formats; wrap as date(OrderDate).\n'
+                   'REVENUE uses "Order Details".UnitPrice, never Products.UnitPrice.')
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def schema(cls, db_path):
+        from sqlite_tool import SQLiteTool
+        return SQLiteTool(db_path).schema()
+
+    def test_flags_the_ambiguous_country_choice(self, schema):
+        sql = ("SELECT COUNT(*) FROM Orders o JOIN Customers c ON c.CustomerID=o.CustomerID "
+               "WHERE date(o.ShippedDate) BETWEEN '2019-01-01' AND '2019-12-31' "
+               "AND c.Country='Germany'")
+        out = interpretive_choices(sql, schema,
+                                   "How many orders were shipped to Germany in 2019?",
+                                   self.CONSTRAINTS)
+        assert any("Customers.Country" in c and "ShipCountry" in c for c in out)
+
+    def test_silent_when_the_question_names_the_column(self, schema):
+        sql = ("SELECT COUNT(*) FROM Orders o JOIN Customers c ON c.CustomerID=o.CustomerID "
+               "WHERE c.Country='Germany' AND date(o.OrderDate) BETWEEN '2020-01-01' AND '2020-12-31'")
+        q = ("Total revenue in 2020 from customers based in Germany "
+             "(customer's country, not shipping destination).")
+        assert interpretive_choices(sql, schema, q, self.CONSTRAINTS) == []
+
+    def test_silent_when_the_planner_dictated_the_column(self, schema):
+        """Compliance with a supplied constraint is not the model's interpretation."""
+        sql = ('SELECT ROUND(SUM(od.UnitPrice*od.Quantity*(1-od.Discount)),2) '
+               'FROM "Order Details" od JOIN Orders o ON o.OrderID=od.OrderID '
+               "WHERE date(o.OrderDate) BETWEEN '2017-06-01' AND '2017-06-30'")
+        out = interpretive_choices(sql, schema, "Total revenue during Summer Beverages 2017.",
+                                   self.CONSTRAINTS)
+        assert out == [], out
+
+    def test_deviating_from_the_constraint_still_fires(self, schema):
+        """The constraint says OrderDate; using ShippedDate is a real choice."""
+        sql = ("SELECT COUNT(*) FROM Orders o WHERE date(o.ShippedDate) "
+               "BETWEEN '2019-01-01' AND '2019-12-31'")
+        out = interpretive_choices(sql, schema, "How many orders in 2019?", self.CONSTRAINTS)
+        assert any("ShippedDate" in c for c in out)
+
+    def test_silent_on_an_unambiguous_query(self, schema):
+        assert interpretive_choices("SELECT COUNT(*) FROM Orders", schema,
+                                    "How many orders are in the database in total?",
+                                    self.CONSTRAINTS) == []
+
+    def test_silent_when_there_is_no_sql(self, schema):
+        assert interpretive_choices("", schema, "anything", self.CONSTRAINTS) == []
+
+    def test_no_false_positives_on_any_gold_sql(self):
+        """The 33 gold statements are the reference for correct interpretation. If this
+        fired on them it would be flagging convention as ambiguity."""
+        from agent.datasets import load_split
+        from sqlite_tool import SQLiteTool
+        from agent import config
+        if not config.DB_PATH.exists():
+            pytest.skip("db")
+        schema = SQLiteTool(config.DB_PATH).schema()
+        noisy = []
+        for rec in load_split("train").records + load_split("dev").records:
+            if not (rec.get("gold_sql") or "").strip():
+                continue
+            out = interpretive_choices(rec["gold_sql"], schema, rec["question"],
+                                       self.CONSTRAINTS)
+            if out:
+                noisy.append((rec["id"], out))
+        assert not noisy, noisy
