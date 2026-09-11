@@ -5,7 +5,7 @@
     "control_handpicked_seed0": {
       "correct": 6,
       "total": 6,
-      "note": "zero repairs on all six; answers verified against independently computed SQL"
+      "note": "6/6 with zero LM repairs on all six; answers verified against independently computed SQL. Regenerated after the grain rewrite: hybrid_best_customer_margin_2017 now executes GROUP BY c.CustomerID (the model wrote c.CompanyName; rewritten in code, stated in assumptions, confidence 0.60). Two cold runs agree on every gated field (artifacts/determinism.json)."
     },
     "bootstrap_rs_seed0": {
       "correct": 6,

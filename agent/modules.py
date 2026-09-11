@@ -64,11 +64,20 @@ def repair_corrupted_keywords(sql: str, known_names: set[str] | None = None) -> 
     returned so the trace can show it.
     """
     known = {n.lower() for n in (known_names or set())}
+    # A name written without its space - `OrderDetails` for "Order Details" - is the
+    # model reaching for a real table, not corrupting a keyword. Seen in a live run: the
+    # keyword pass below turned it into the keyword `order` (shared 4-char prefix, not a
+    # known name as spelled) and produced `JOIN order od`, a syntax error. Resolve it to
+    # the quoted table first, so the keyword pass never sees it.
+    squashed = {n.replace(" ", "").lower(): n for n in (known_names or set()) if " " in n}
     fixes: list[str] = []
 
     def fix(match: re.Match[str]) -> str:
         tok = match.group(0)
         low = tok.lower()
+        if low in squashed:
+            fixes.append(f'{tok} -> "{squashed[low]}"')
+            return f'"{squashed[low]}"'
         if len(tok) < _MIN_TOKEN or low in _SQL_VOCAB or low in known:
             return tok
         candidates = [kw for kw in _SQL_VOCAB

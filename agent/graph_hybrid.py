@@ -40,8 +40,10 @@ from agent.injection import Quarantined, sanitize, wrap_untrusted
 from agent.modules import DocAnswer, Explainer, NL2SQL, Router, Synthesizer
 from agent.planner import Plan, build_plan
 from agent.retriever import Hit, Retriever
-from agent.schema import all_columns, known_tables, schema_text
-from agent.sql_analysis import (interpretive_choices, physical_tables, schema_errors,
+from agent.schema import all_columns, known_tables, label_collisions, schema_text, view_map
+from agent.sql_analysis import (ambiguous_columns, date_boundary_errors, interpretive_choices,
+                                label_grouping, physical_tables, rewrite_date_boundaries,
+                                rewrite_label_grouping, schema_errors,
                                 unwrapped_date_comparisons)
 from agent.trace import Tracer
 from agent.validator import Failure, validate
@@ -65,6 +67,7 @@ class State(TypedDict, total=False):
     constraints: str
     sql: str
     static_errors: list[str]
+    normalisations: list[str]
     columns: list[str]
     rows: list[tuple]
     exec_error: str | None
@@ -101,6 +104,8 @@ class Deps:
     corpus_chunk_ids: set[str]
     baseline_artifact: bool = False
     traces_dir: Path = field(default_factory=lambda: config.TRACES_DIR)
+    views: dict[str, set[str]] = field(default_factory=dict)
+    label_keys: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 def build_deps(db_path: Path | None = None, baseline_artifact: bool = False) -> Deps:
@@ -115,6 +120,8 @@ def build_deps(db_path: Path | None = None, baseline_artifact: bool = False) -> 
         tables=known_tables(db), columns=all_columns(db),
         corpus_chunk_ids={c.id for c in retr.chunks},
         baseline_artifact=baseline_artifact,
+        views=view_map(db),
+        label_keys=label_collisions(db),
     )
 
 
@@ -189,12 +196,33 @@ def make_graph(deps: Deps, tracer: Tracer):
                                db_schema=deps.db_schema, constraints=state["constraints"],
                                feedback=state.get("feedback", ""))
             lint = unwrapped_date_comparisons(pred.sql)
-            # Static check before execution. A hallucinated column or an undefined alias
-            # is diagnosable from the schema alone, and saying exactly which column is
-            # wrong converts a wasted attempt into a targeted correction.
-            static = schema_errors(pred.sql, deps.schema_map) if pred.sql else []
-            st.record(sql=pred.sql, raw=pred.raw_sql, date_lint=lint, static_errors=static)
-            return {"sql": pred.sql, "static_errors": static}
+            # Static checks before execution. Each is decidable from the schema alone and
+            # each converts a wasted 16-20s attempt into a targeted correction. The first
+            # three catch SQL that cannot run; the last two catch SQL that runs and returns
+            # a plausible wrong number, which is the failure the executor can never see:
+            #   schema_errors      invented column / undefined alias / invented table
+            #   ambiguous_columns  bare column two joined tables both own
+            #   label_grouping     GROUP BY display name instead of entity key
+            #   date_boundary      inclusive bound on a bare mixed-format date column
+            # Mechanical fixes first. Grouping by a colliding label and an inclusive bound
+            # on a bare date column are both exact rewrites; asking the model to make them
+            # cost an LM call each, and the extra calls broke determinism (see DECISIONS.md).
+            sql, notes = rewrite_label_grouping(pred.sql, deps.schema_map, deps.label_keys)
+            sql, more = rewrite_date_boundaries(sql)
+            notes += more
+            checks = {
+                "schema": schema_errors(sql, deps.schema_map) if sql else [],
+                "ambiguous": ambiguous_columns(sql, deps.schema_map),
+                # Should be empty after the rewrites; anything left falls through to repair.
+                "grain": label_grouping(sql, deps.schema_map, deps.label_keys),
+                "date_boundary": date_boundary_errors(sql),
+            }
+            static = [msg for msgs in checks.values() for msg in msgs]
+            st.record(sql=sql, raw=pred.raw_sql, model_sql=pred.sql, normalised=notes,
+                      date_lint=lint, static_errors=static,
+                      static_by_check={k: v for k, v in checks.items() if v})
+            return {"sql": sql, "static_errors": static,
+                    "normalisations": (state.get("normalisations") or []) + notes}
 
     def n_execute(state: State) -> State:
         attempt = state.get("repairs", 0)
@@ -263,7 +291,7 @@ def make_graph(deps: Deps, tracer: Tracer):
 
             interps = interpretive_choices(state["sql"], deps.schema_map,
                                            state["question"], state.get("constraints", ""))
-            tables = physical_tables(state["sql"], deps.tables)
+            tables = physical_tables(state["sql"], deps.tables, deps.views)
             chunks = _chunks_supporting(state, answer)
             st.record(answer=answer, tables=tables, chunks=chunks, interpretations=interps,
                       synthesizer_proposed=proposed, synthesizer_agrees=agrees,
@@ -285,7 +313,7 @@ def make_graph(deps: Deps, tracer: Tracer):
                 sql=state.get("sql", ""), citations=state.get("citations", []),
                 columns=state.get("columns", []), rows=state.get("rows", []),
                 known_tables=deps.tables, corpus_chunk_ids=deps.corpus_chunk_ids,
-                seen_chunk_ids=seen, route=state["route"],
+                seen_chunk_ids=seen, route=state["route"], views=deps.views,
             )
             st.record(failures=[str(f) for f in fails], ok=not fails)
             return {"failures": [str(f) for f in fails]}
@@ -316,14 +344,14 @@ def make_graph(deps: Deps, tracer: Tracer):
             considered += [h.chunk_id for h in state.get("hits", [])]
             blocker = state.get("blocker") or "; ".join(state.get("failures") or []) or \
                 "The agent could not produce an answer that satisfies the output contract."
-            packet = ReviewPacket(
+            packet, trimmed = _fit_packet(ReviewPacket(
                 question=state["question"],
                 understood=_understood(state),
                 blocker=blocker[:400],
                 considered=considered[:6],
                 decision_needed=_decision_needed(state),
-            )
-            st.record(review_packet=packet.model_dump())
+            ))
+            st.record(review_packet=packet.model_dump(), trimmed_to_fit=trimmed)
             return {"status": "needs_review", "review_packet": packet.model_dump(),
                     "confidence": None, "final_answer": None}
 
@@ -356,8 +384,10 @@ def make_graph(deps: Deps, tracer: Tracer):
                 baseline_artifact=deps.baseline_artifact,
                 synthesizer_agrees=state.get("synth_agrees"),
                 open_interpretations=len(state.get("interpretations") or []),
+                normalisations=len(state.get("normalisations") or []),
             )
-            assumptions = _assumptions(state, plan)
+            # A rewrite is an interpretation the human should see, so it is an assumption.
+            assumptions = _assumptions(state, plan) + list(dict.fromkeys(state.get("normalisations") or []))
             st.record(confidence=conf.value, rubric=conf.notes, assumptions=assumptions)
             return {"status": "answered", "explanation": explanation,
                     "confidence": conf.value, "assumptions": assumptions}
@@ -547,6 +577,36 @@ def _assumptions(state: State, plan: Plan) -> list[str]:
         out.append(f"Required {state['repairs']} SQL repair attempt(s); "
                    "the final query is the one reported.")
     return out
+
+
+REVIEW_PACKET_MAX_WORDS = 150   # contract: "Under 150 words"
+
+
+def _packet_words(p: ReviewPacket) -> int:
+    return len(" ".join([p.question, p.understood, p.blocker, *p.considered,
+                         p.decision_needed]).split())
+
+
+def _fit_packet(p: ReviewPacket, limit: int = REVIEW_PACKET_MAX_WORDS) -> tuple[ReviewPacket, bool]:
+    """Trim a review packet until it is under the contract's word limit.
+
+    The character caps above bound the common case but not the contract: a 60-word
+    question plus six candidate SQL statements can pass every cap and still run long.
+    Trimming order is by how much a reviewer loses: candidate SQL first (the last executed
+    statement is kept), then the blocker's tail, then the understanding summary. The
+    question and the decision are never cut - they are what the human is being asked.
+    """
+    if _packet_words(p) < limit:
+        return p, False
+    d = p.model_dump()
+    while len(d["considered"]) > 1 and _packet_words(ReviewPacket(**d)) >= limit:
+        d["considered"].pop()
+    for field in ("blocker", "understood"):
+        words = d[field].split()
+        while len(words) > 8 and _packet_words(ReviewPacket(**d)) >= limit:
+            words = words[:-4]
+            d[field] = " ".join(words) + " ..."
+    return ReviewPacket(**d), True
 
 
 def _understood(state: State) -> str:

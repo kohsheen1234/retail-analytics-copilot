@@ -1,5 +1,17 @@
 # Decisions
 
+A working log, kept in the order things were found rather than the order that would read
+best. Each entry is one observation about the data, the documents, the tools or a run,
+followed by what was decided and why. Where a later measurement overturned an earlier
+entry, the original stands and a dated note is added beneath it; the corrections are part
+of the record, not noise in it.
+
+Five sections, in the order the work happened: what the pack alone revealed; what the
+database revealed once it arrived; what building and running the graph exposed; the
+second pass on the optimizer; and the O1 re-run, which turned up a bug in the shipped
+agent. If you read one thing, read the entry "Correction: I was wrong about pre-2016 data"
+and the italic _(Later: …)_ notes - they are where an earlier claim met a measurement.
+
 ## Reading the pack, before the database arrived
 
 ### Python 3.12, not 3.11
@@ -166,6 +178,11 @@ day. Every gold SQL wraps it: `date(o.OrderDate) BETWEEN start AND end`, inclusi
 Handling this at three layers - planner constraint, demos, and a lint on generated SQL that
 triggers a repair. Belt and braces is proportionate because nearly every question is
 date-windowed and a silent undercount is indistinguishable from a correct answer.
+
+_(Later: the third layer was not true as written. The lint only ever added a note to the
+feedback of a repair that was already happening for another reason, so a bare `BETWEEN`
+that executed cleanly was never repaired. Found while chasing the grain bug, fixed in the
+same pass - see "Constraints are delivered, not obeyed" below.)_
 
 Still unverified: `date()` returns NULL on anything it can't parse, so a third format would
 make rows vanish from _both_ sides of that test while it still passes. Need the histogram.
@@ -657,3 +674,163 @@ That lint is the next thing I would add: entity aggregation must group by the id
 and a violation is a repair trigger, exactly like the bare-`BETWEEN` lint. The date lint
 exists because I measured the undercount it prevents. This is the same shape of bug and I
 stopped one step short of the same defence.
+
+---
+
+## Constraints are delivered, not obeyed
+
+### The audit that started it
+
+Went back through the brief line by line, treating it as the exam it is. Most of it held:
+contract fields, determinism artefact current, trace event shape, pack files byte-identical,
+every required test category present, added examples carrying all nine fields. Three things
+did not.
+
+The review packet's "under 150 words" was bounded by character caps on individual fields
+and checked by one end-to-end test. A 60-word question plus six candidate statements passes
+every cap and runs long. Now enforced: `_fit_packet` trims candidate SQL first (keeping the
+last executed statement), then the blocker's tail, then the understanding summary, and never
+touches the question or the decision - those are what the human is being asked.
+
+The README had no literal "graph design in 2 to 4 bullets"; it had a diagram and a table.
+Added the four bullets. And `194 tests` survived in three places while the suite was at 206.
+
+### What the shipped agent was actually doing
+
+The audit's real finding came from the O1 re-run. A bootstrapped demo grouped categories by
+`CategoryName` where gold groups by `CategoryID`, so I checked whether the shipped agent had
+the same habit. It did, and worse: on `dev_top3_customers_revenue_2019` the full agent had
+written `GROUP BY c.CompanyName`, merged the two test accounts both named `IT` into one
+$859,581 customer, ranked it first, and shipped that at confidence 0.75 - a wrong answer above
+the penalty line. The `ENTITY GRAIN` constraint was in the prompt for that question. I checked
+the trace. The model read it and did otherwise.
+
+That reframed several things at once. Every constraint the planner writes into the prompt
+had been verified for *delivery* - the trace shows it arriving - and never for *compliance*.
+The date lint, which this log describes as "a lint on generated SQL that triggers a repair",
+only ever added a note to a repair that was already happening for some other reason; a bare
+`BETWEEN` that executed cleanly was never repaired. Same shape, same gap.
+
+### First attempt: lints that trigger LM repairs
+
+Wrote four pre-execution checks in `agent/sql_analysis.py`, all schema-derived, all silent on
+the 33 gold statements:
+
+| check | catches | motivating failure |
+|---|---|---|
+| `schema_errors` (fixed) | invented table; message now names it | "alias never defined; has: o, x" named the alias it called missing |
+| `ambiguous_columns` | bare column two joined tables own | `dev_added_grain_lines_vs_orders_2020`, "ambiguous column name: OrderID" |
+| `label_grouping` | GROUP BY display name, key absent | `dev_top3_customers_revenue_2019`, the `IT` customer |
+| `date_boundary_errors` | inclusive bound on a bare date column | 3 of 134 June-2017 orders silently dropped |
+
+Each routed to the existing repair loop. Measured the end-to-end effect on dev with the
+current code first, so the before was real: **9/13 answered correctly, 0.692, mean
+confidence 0.680, gap -0.012**. Then with the lints: **9/12, 0.750**. The one change was the
+grain question, wrong-at-0.75 to `needs_review` after two repairs. Under the escalation
+scoring that is 0-plus-penalty to 0.25. Better. Not the 1.0 I wanted: the 3.8B model, told
+in plain words to group by `CustomerID`, could not do it in two tries.
+
+### What broke: determinism
+
+Then the determinism check. Two cold runs on the eval set disagreed on `sql` for **5 of 6**
+questions and on `final_answer` and `status` for 2. This gate had passed with the previous
+code. The diff explained itself:
+
+* `label_grouping` fired on `GROUP BY c.CategoryName`. Category names are unique, so this was
+  harmless SQL, but it cost an LM repair call. Both runs repaired it to `CategoryID`; one
+  aliased the sum `q`, the other `quantity`.
+* On the margin question the repair produced SQL with two `GROUP BY` clauses in one run and an
+  invented `Suppliers` join in the other.
+* After that point, *first-attempt* generations for later questions differed between runs -
+  identical prompts, identical seed, temperature 0. Each extra call leaves Ollama in a
+  different state, and near-tied tokens then fall differently.
+
+So the earlier "deterministic: true" was not a property of the system; it was a property of a
+run with twelve LM calls and no near-ties. Exposure scales with LM calls, and the lints had
+roughly doubled them. The third run - the one that would have shipped - escalated 4 of 6.
+Restored `outputs_hybrid.jsonl` from git and kept the failed run as evidence.
+
+### Second attempt: fix in code what has an exact fix
+
+Two of the four findings have mechanical fixes: swap the label for the key in the GROUP BY
+term; wrap the bare date column in `date()`. Asking a 3.8B model to make an exact edit costs a
+call, a confidence penalty, determinism exposure, and - measured - often fails. So the fix is
+applied, recorded in the trace beside the model's original SQL, stated in `assumptions`, and
+charged 0.05 confidence per rewrite. This is the same class of operation as the keyword
+repair (`BETWEDIR -> BETWEEN`) that already runs before the execution boundary. What has no
+mechanical fix - an invented column, an ambiguous bare column - still goes to the LM repair,
+and those pre-empt an execution error that would have triggered the same repair anyway, so
+they add no calls.
+
+The grain check also became data-aware, because "grouping by a label" is only *observably*
+wrong when labels collide. One ratio, distinct values over rows, measured at startup:
+
+| column | distinct / rows | reading | action |
+|---|---|---|---|
+| `Customers.CompanyName` | 92 / 93 | identifier with a defect | rewrite |
+| `Categories.CategoryName` | 8 / 8 | unique; harmless | leave |
+| `Orders.ShipName` | 90 / 16,282 | an attribute people group by | leave |
+
+Threshold 0.9. Rewriting `ShipName` to `OrderID` would give one group per order; the measured
+values sit far from the line on both sides.
+
+### A bug found in the wreckage
+
+In the unstable run the model wrote `FROM OrderDetails od` - a natural spelling of
+`"Order Details"` - and the keyword repair turned it into `JOIN order od`, a syntax error.
+`OrderDetails` is not a known name as spelled, so the guard did not protect it, and it shares
+a four-character prefix with exactly one keyword. A name that matches a known table with its
+spaces removed now resolves to the quoted table before the keyword pass sees it.
+
+### The views
+
+Two other candidates' repositories carried a third and fourth distinct hash for the database.
+Same 16,282 orders, same date range, same 448,386,633.17 revenue. Checking why turned up 18
+views in the fixture - the classic Northwind reporting views plus `order_items` and
+`ProductDetails_V`, which look candidate-authored and are byte-identical in the pristine
+download. This log had inventoried 13 tables and never mentioned them. A query through a view
+is valid SQL whose physical tables the citation contract still wants named, so
+`agent/schema.py::view_map` resolves views to base tables, recursively, and `physical_tables`
+cites those. Views are not rendered into the prompt; the model still sees 13 tables.
+
+Also: three files, four hashes, one dataset. The argument made earlier about `2f4f5c68` -
+same rows, different bytes - now has two more data points.
+
+### Measured, after the rewrite
+
+Same protocol as before: full agent over the 15 dev examples, cold cache, then two cold runs
+on the eval file, then the official run last so `traces/` matches `outputs_hybrid.jsonl`.
+
+| | answered | accuracy | mean confidence | gap | wrong above 0.7 |
+|---|---|---|---|---|---|
+| before any of this | 13/15 | 0.692 | 0.680 | -0.012 | 1 |
+| lints as LM repairs | 12/15 | 0.750 | 0.674 | -0.076 | 0 (but determinism failed) |
+| **rewrites** | **13/15** | **0.769** | 0.676 | -0.093 | **0** |
+
+One row changed, which is the point: `dev_top3_customers_revenue_2019` went from wrong at
+0.75 to **correct at 0.70 with zero LM repairs** - the model wrote `GROUP BY c.CompanyName`,
+the rewrite executed `GROUP BY c.CustomerID`, and the trace holds both. Fourteen of fifteen
+rows are identical to the baseline down to the confidence value, which is what "no extra LM
+calls" should look like.
+
+**Determinism: two cold eval runs, zero mismatches**, explanations included. **Eval: 6/6,
+zero repairs**, every `final_answer` identical to the independently verified values. The
+margin question now executes `GROUP BY c.CustomerID` and says so in `assumptions`;
+confidence 0.60 rather than 0.77, because the model did not write the query that ran.
+
+Two of ten correct dev answers needed an LM repair (`dev_federal_shipping_orders_2017`,
+`dev_added_grain_lines_vs_orders_2020`). That is the repair loop measurably helping; the
+rest of the lift came from not needing it.
+
+### Not re-tuning confidence
+
+Accuracy rose and confidence did not follow: the dev gap is now -0.093, under-confident.
+The rubric's base was set to 0.75 from a measured 0.692 one pass ago. Moving it to ~0.83
+would close the gap on dev - and would be fitting the rubric to the dev set a second time.
+Leaving it, for three reasons. The hidden-set prediction in the README is 70-85%
+end-to-end, and 0.676 sits inside that band. The scoring penalises over-confidence on wrong
+answers specifically and under-confidence only through the general comparison, so the
+asymmetric risk favours the lower value. And the outputs that had shipped were carrying
+confidences from the *previous* rubric - 0.77 to 0.87 - because the recalibration commit
+never regenerated them; they are consistent with the code for the first time now. Revisit
+after the live session, with hidden-set correctness as the third measurement.

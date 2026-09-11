@@ -103,6 +103,91 @@ def all_columns(db_path: str | None = None) -> set[str]:
     return {c["name"] for cols in schema.values() for c in cols}
 
 
+LABEL_NEAR_UNIQUE = 0.9   # distinct/rows at or above this reads as "meant to identify the row"
+
+
+def label_collisions(db_path: str | None = None,
+                     near_unique: float = LABEL_NEAR_UNIQUE) -> dict[str, dict[str, str]]:
+    """table -> {label column -> key column}, for labels that are nearly but not quite unique.
+
+    Grouping an entity by its display name instead of its key is only *observably* wrong
+    when two rows share a name. Whether they do is a fact about the data, so it is
+    measured here at startup rather than assumed. Three regimes fall out of one ratio,
+    distinct values over rows, measured on this database:
+
+        Customers.CompanyName   92 / 93     near-unique with a collision  -> fires
+        Categories.CategoryName  8 / 8      unique: grouping by it is harmless -> silent
+        Orders.ShipName         90 / 16282  an attribute, not an identifier   -> silent
+
+    The middle regime is an identifier with a defect (two test accounts both named "IT"),
+    and grouping by it merged them into a $859,581 customer that ranked first. The third
+    is a column people legitimately group by; rewriting it to the key would give one group
+    per order. The threshold is a judgement; the measured values sit far from it on both
+    sides.
+    """
+    from agent import config
+    tool = SQLiteTool(str(db_path or config.DB_PATH))
+    schema = tool.schema()
+    conn = tool._connect()
+    out: dict[str, dict[str, str]] = {}
+    try:
+        for table, cols in schema.items():
+            pks = [c["name"] for c in cols if c["pk"]]
+            if len(pks) != 1:
+                continue
+            for c in cols:
+                if not c["name"].lower().endswith("name") or (c["type"] or "").upper() not in ("TEXT", ""):
+                    continue
+                n, d = conn.execute(f'SELECT COUNT(*), COUNT(DISTINCT "{c["name"]}") FROM "{table}"').fetchone()
+                if n and d < n and d / n >= near_unique:
+                    out.setdefault(table, {})[c["name"]] = pks[0]
+    finally:
+        conn.close()
+    return out
+
+
+def view_map(db_path: str | None = None) -> dict[str, set[str]]:
+    """view name -> the physical tables it ultimately reads, via sqlite_master.
+
+    The delivered fixture ships 18 views - the classic Northwind reporting views plus two
+    lowercase shims, `order_items` and `ProductDetails_V`, that look candidate-authored but
+    are byte-identical in the pristine download. A model that emits one produces valid SQL
+    whose physical footprint the citation contract still wants named, so views are resolved
+    (recursively: a view may read a view) to base tables. Read-only, never rendered into the
+    prompt: the schema the model sees stays the 13 tables.
+    """
+    from agent import config
+    from agent.sql_analysis import referenced_names
+    tool = SQLiteTool(str(db_path or config.DB_PATH))
+    conn = tool._connect()
+    try:
+        rows = conn.execute("SELECT name, sql FROM sqlite_master WHERE type='view'").fetchall()
+    finally:
+        conn.close()
+    defs = {name: (sql or "") for name, sql in rows}
+    tables = {t.lower(): t for t in tool.schema()}
+    resolved: dict[str, set[str]] = {}
+
+    def bases(view: str, seen: frozenset[str]) -> set[str]:
+        if view in resolved:
+            return resolved[view]
+        out: set[str] = set()
+        for ref in referenced_names(defs[view]):
+            fold = ref.lower()
+            if fold in tables:
+                out.add(tables[fold])
+            else:
+                child = next((v for v in defs if v.lower() == fold), None)
+                if child and child not in seen:
+                    out |= bases(child, seen | {child})
+        resolved[view] = out
+        return out
+
+    for v in defs:
+        bases(v, frozenset({v}))
+    return resolved
+
+
 def column_owners(db_path: str | None = None) -> dict[str, list[str]]:
     """column name -> tables that have it. Derived from PRAGMA, never hardcoded."""
     from agent import config

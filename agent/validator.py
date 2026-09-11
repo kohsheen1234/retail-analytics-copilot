@@ -40,7 +40,7 @@ def split_citations(citations: list[str]) -> tuple[list[str], list[str]]:
 def validate(*, final_answer, format_hint: str, sql: str, citations: list[str],
              columns: list[str], rows: list[tuple], known_tables: list[str],
              corpus_chunk_ids: set[str], seen_chunk_ids: set[str],
-             route: str) -> list[Failure]:
+             route: str, views: dict[str, set[str]] | None = None) -> list[Failure]:
     failures: list[Failure] = []
     tables, chunks = split_citations(citations)
 
@@ -50,7 +50,7 @@ def validate(*, final_answer, format_hint: str, sql: str, citations: list[str],
 
     # 2. table citations exactly cover the executed SQL
     if sql.strip():
-        expected = set(physical_tables(sql, known_tables))
+        expected = set(physical_tables(sql, known_tables, views))
         got = set(tables)
         if missing := expected - got:
             failures.append(Failure("citations.tables", f"missing {sorted(missing)}"))

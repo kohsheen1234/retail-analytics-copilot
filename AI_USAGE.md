@@ -2,8 +2,9 @@
 
 ## Tools
 
-**Claude Code (Opus 5)** was the only AI tool used, driven interactively from the
-terminal in this repository. It wrote the bulk of the code in `agent/`, `tests/`,
+**Claude Code** was the only AI tool used, driven interactively from the terminal in
+this repository - on Opus 5 for most of the work, and on Fable 5.1 for the final audit
+pass (the lints, the O1 re-run, and sections 9-10 below). It wrote the bulk of the code in `agent/`, `tests/`,
 `optimize.py`, `scripts/` and the prose in `README.md` / `DECISIONS.md`, under my
 direction and review.
 
@@ -197,6 +198,82 @@ where the proxy is invented — which escalates instead. I changed the code to p
   `# Northwind Marketing Calendar (2017)` as a defined term, so every question mentioning
   2017 dragged in a title-only chunk. Fixed by requiring a definition name to contain a
   non-numeric word.
+
+---
+
+### 9. Corrected: a throwaway checker that contradicted the tested one
+
+While re-verifying the database checksum question, the assistant wrote a quick script to
+re-run all 23 gold SQL statements and compare against `gold_answer`. It reported
+**16 matched, 7 mismatched**. The seven "mismatches" were every ranking question:
+
+```
+train_top3_categories_revenue  MISMATCH
+  got=['Beverages', 92163184.18, 'Confections', 66337803.06, ...]
+  gold=[{'category': 'Beverages', 'revenue': 92163184.18}, ...]
+```
+
+Every *value* was identical. The script had flattened rows into a list of scalars and
+compared that against a list of dicts, so it was measuring its own comparison function,
+not the database. `tests/test_database_identity.py`, which does the comparison properly,
+said 23/23 - and that is what I trust, because it is the tested path. The correction that
+matters here is procedural: when an ad-hoc check disagrees with a tested one, the first
+suspect is the ad-hoc check. Rejected the script's numbers; kept the test's.
+
+---
+
+### 10. Corrected: "they modified the database" - they had not
+
+Reviewing another candidate's public repository, the assistant found their
+`northwind.sqlite` at a third distinct SHA-256, saw `order_items` and `ProductDetails_V`
+views in it alongside a `views.py` that creates lowercase views, and concluded they had
+modified the database - a stated constraint violation. It then noticed our own copy has
+the same two views.
+
+The check that settled it: the 18 views are **identical** between their file, our file, and
+the two pristine downloads from the invitation URL. `order_items` is original to the
+fixture; their `views.py` is a no-op because everything it would create already exists.
+Nobody modified anything. What actually differs between the files is bytes that carry no
+data - which is the same explanation already argued in `DECISIONS.md` for our hash not
+matching the published one, now with a third supporting data point.
+
+I kept the finding it led to (`agent/schema.py::view_map`: a query through one of those
+18 views now cites the physical tables it reads instead of nothing) and dropped the
+accusation. "Looks candidate-authored" was an inference; "byte-identical to the pristine
+download" is a measurement.
+
+---
+
+### 11. Rejected: lints that fix SQL by asking the model to
+
+The most expensive correction in the project, and the one I would point to if asked what the
+tools got wrong.
+
+Having found that the shipped agent grouped customers by `CompanyName` and merged two test
+accounts into a top-ranked "customer", the assistant wrote four pre-execution lints and wired
+all four into the existing repair loop: detect the bad form, hand the model a sentence
+explaining the fix, let it try again. Clean design on paper, consistent with how the schema
+check already worked, 132 new tests passing, silent on every gold statement.
+
+Then the determinism check ran. Two cold runs disagreed on `sql` for five of six eval
+questions. The trace showed why: the grain lint fired on `GROUP BY c.CategoryName` - correct,
+harmless SQL, because category names are unique - and spent an LM call repairing it; the
+repair on the margin question produced a statement with two `GROUP BY` clauses; and every
+extra call left Ollama in a different state, so later first-attempt generations diverged too.
+The run that would have shipped escalated four of six.
+
+What I rejected was the mechanism, not the finding. The bad forms are real. But two of them
+have *exact* fixes - swap the label for the key, wrap the date column - and asking a 3.8B
+model to perform an exact edit costs a call, a confidence penalty, determinism exposure and,
+measured, often fails. The rewrite is now applied in code, shown in the trace beside the
+model's original, stated in `assumptions`, and the grain check only fires where the data
+says labels actually collide. The lints with no mechanical fix still route to repair, and
+those pre-empt an execution error that would have caused the same repair anyway.
+
+The general lesson I took: the assistant reached for the *existing* pattern (feedback to the
+model) because it fit, and it took an end-to-end measurement to show that the fit was the
+problem. The check that caught it was `scripts/check_determinism.py`, which exists because I
+had decided earlier that determinism is a thing you run, not a thing you reason about.
 
 ---
 

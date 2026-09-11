@@ -172,6 +172,10 @@ class Confidence:
     an invented number - and the direction of the correction is the opposite of intuition,
     which is the reason for measuring instead of guessing.
 
+    A later pass (grain rewrite, see DECISIONS.md) lifted dev accuracy to 0.769 while mean
+    confidence stayed at 0.676, gap -0.093. Deliberately not re-tuned on dev a second time;
+    the hidden set is the next measurement.
+
     Discrimination is the weaker half and is not fixed here: mean confidence is 0.851 when
     correct against 0.782 when wrong, a separation of only +0.069. Fitting signals to
     close that on 13 points would be overfitting; the honest move is to report it.
@@ -201,8 +205,15 @@ def score_confidence(*, route: str, repairs: int, rows: int, conflicts_resolved:
                      legacy_window_ambiguity: bool, used_fallback_route: bool,
                      baseline_artifact: bool, supplied_approximation: bool = False,
                      synthesizer_agrees: bool | None = None,
-                     open_interpretations: int = 0) -> Confidence:
+                     open_interpretations: int = 0,
+                     normalisations: int = 0) -> Confidence:
     c = Confidence()
+    if normalisations:
+        # The executed SQL is not exactly what the model wrote: a mechanical rewrite fixed
+        # a form that is never right (grouping by a colliding label, an inclusive bound on
+        # a bare date). The fix is exact, so this is a small penalty, not a cap - but the
+        # model did not produce the query that ran, and the reader should know.
+        c.penalise(0.05 * normalisations, f"{normalisations} mechanical rewrite(s) applied to the SQL")
     if route == "rag":
         # No executable check on a document lookup: nothing verifies the extraction.
         c.penalise(0.10, "answer read from documents with no executable cross-check")
