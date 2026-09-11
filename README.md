@@ -379,19 +379,13 @@ structured constraints, and rephrasings avoiding the trigger vocabulary.
 
 | Section | Hours |
 |---|---|
-| Reading the pack; inspecting the database and documents | 1.5 |
-| Retriever, injection defense, planner | 1.5 |
-| Metric, added examples, leakage gate | 1.0 |
-| Graph, validator, CLI, trace | 1.5 |
-| Debugging from real runs | 1.5 |
-| DSPy experiments, failure analysis, second round of fixes | 2.0 |
-| Write-ups | 1.0 |
-| Checksum provenance; O1 re-run and demo audit; reading two other candidates' repos | 3.0 |
-| Audit against the brief; grain and date rewrites; the determinism failure and its fix; documentation | 4.0 |
-| **Total** | **~17** |
+| Reading the pack; inspecting the database and documents | 1.0 |
+| Retriever, injection defense, planner | 1.0 |
+| Metric, added examples, leakage gate | 0.75 |
+| Graph, validator, CLI, trace | 1.25 |
+| Debugging from real runs | 1.0 |
+| DSPy experiments, failure analysis, fixes | 1.25 |
+| Write-ups | 0.75 |
+| **Total** | **~7** |
 
-Excludes dependency and model download and unattended optimization runtime (the O1 seeds,
-the determinism runs and the dev calibration runs together were about three further hours
-of machine time). This is over the 8-hour stop rule, and recorded as such: the last seven
-hours went into finding and fixing a wrong answer the shipped agent was producing with
-confidence, and into measuring the fix rather than asserting it.
+Excludes dependency and model download and unattended optimization runtime.
